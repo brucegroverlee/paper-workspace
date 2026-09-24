@@ -337,6 +337,11 @@ body {
   cursor: text;
 }
 
+.pw-editor-body.preview {
+  cursor: grab;
+  user-select: none;
+}
+
 .pw-editor .pw-editor-body {
   border-radius: 0 0 7px 7px;
 }

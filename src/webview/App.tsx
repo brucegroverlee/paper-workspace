@@ -69,9 +69,13 @@ const isFile = (n: RFNode): n is RFFileNode => n.type === 'file';
 const isBox = (n: RFNode) => n.type !== 'editor';
 const isGroup = (n: RFNode): n is RFGroupNode => n.type === 'group';
 
+// Headers drag their paper; so does the code area while it is a static preview (zoomed far out).
+const EDITOR_DRAG_HANDLE = '.pw-editor-header, .pw-editor-body.preview';
+const FILE_DRAG_HANDLE = '.pw-file-header, .pw-editor-body.preview';
+
 /** React Flow props of a box node (anything but an editor) by kind. */
 function boxProps(type: RFNode['type']): { dragHandle?: string } {
-  if (type === 'file') return { dragHandle: '.pw-file-header' };
+  if (type === 'file') return { dragHandle: FILE_DRAG_HANDLE };
   return {};
 }
 
@@ -117,7 +121,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
       width: n.width,
       height: n.height,
       measured: { width: n.width, height: n.height },
-      dragHandle: '.pw-editor-header',
+      dragHandle: EDITOR_DRAG_HANDLE,
       selected: selected.has(n.id),
       data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor },
     });
@@ -546,7 +550,7 @@ export function App() {
             width,
             height,
             measured: { width, height },
-            dragHandle: '.pw-editor-header',
+            dragHandle: EDITOR_DRAG_HANDLE,
             selected: true,
             data: {
               file: file.data.file,

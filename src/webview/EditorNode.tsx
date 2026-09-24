@@ -151,8 +151,34 @@ export function EditorBody({ id, data }: { id: string; data: EditorNodeData }) {
   const doc = useDoc(data.file);
   const zoom = useStore(zoomSelector);
   const live = zoom >= LIVE_EDITOR_MIN_ZOOM;
+  const body = useRef<HTMLDivElement>(null);
+  const rf = useReactFlow();
+
+  // Ctrl/Cmd+wheel over code zooms the canvas (like everywhere else) instead of being swallowed by Monaco or
+  // ignored because of `nowheel`. Lives on the body so it works for both the live editor and the preview.
+  useEffect(() => {
+    const el = body.current!;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const { x, y, zoom } = rf.getViewport();
+      // Same step as React Flow's pane wheelDelta (x10 only for macOS trackpad pinch), so zoom speed is identical.
+      const unit = e.deltaMode === 1 ? 0.05 : e.deltaMode ? 1 : 0.002;
+      const factor = e.ctrlKey && /Mac/i.test(navigator.userAgent) ? 10 : 1;
+      const next = Math.min(ZOOM_LIMITS.max, Math.max(ZOOM_LIMITS.min, zoom * Math.pow(2, -e.deltaY * unit * factor)));
+      const pane = document.querySelector('.react-flow')!.getBoundingClientRect();
+      const px = e.clientX - pane.left;
+      const py = e.clientY - pane.top;
+      rf.setViewport({ x: px - ((px - x) / zoom) * next, y: py - ((py - y) / zoom) * next, zoom: next });
+    };
+    el.addEventListener('wheel', onWheel, { capture: true, passive: false });
+    return () => el.removeEventListener('wheel', onWheel, { capture: true });
+  }, [rf]);
+
   return (
-    <div className="pw-editor-body nodrag nopan nowheel">
+    // The preview is static (no editing or scrolling), so it drags the node like the rest of the paper.
+    <div ref={body} className={`pw-editor-body ${live ? 'nodrag nopan nowheel' : 'preview'}`}>
       {doc?.error ? (
         <div className="pw-error">{doc.error}</div>
       ) : !doc?.model ? (
@@ -184,7 +210,6 @@ function LiveEditor(props: {
   onGoToDefinition(line: number, column: number): void;
 }) {
   const { id, model, target, settings } = props;
-  const rf = useReactFlow();
   const container = useRef<HTMLDivElement>(null);
   const overflow = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -274,23 +299,6 @@ function LiveEditor(props: {
     };
     window.addEventListener('pw-scroll-to-target', onRequest);
 
-    // Ctrl/Cmd+wheel over code zooms the canvas (like everywhere else) instead of being swallowed by Monaco.
-    const onWheel = (e: WheelEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const { x, y, zoom } = rf.getViewport();
-      // Same step as React Flow's pane wheelDelta (x10 only for macOS trackpad pinch), so zoom speed is identical.
-      const unit = e.deltaMode === 1 ? 0.05 : e.deltaMode ? 1 : 0.002;
-      const factor = e.ctrlKey && /Mac/i.test(navigator.userAgent) ? 10 : 1;
-      const next = Math.min(ZOOM_LIMITS.max, Math.max(ZOOM_LIMITS.min, zoom * Math.pow(2, -e.deltaY * unit * factor)));
-      const pane = document.querySelector('.react-flow')!.getBoundingClientRect();
-      const px = e.clientX - pane.left;
-      const py = e.clientY - pane.top;
-      rf.setViewport({ x: px - ((px - x) / zoom) * next, y: py - ((py - y) / zoom) * next, zoom: next });
-    };
-    el.addEventListener('wheel', onWheel, { capture: true, passive: false });
-
     // Ctrl/Cmd+click goes to the definition (the host asks VS Code's language service); holding the modifier
     // underlines what would be followed, like VS Code. Monaco's own multi-cursor modifier stays Alt.
     const link = ed.createDecorationsCollection();
@@ -326,7 +334,6 @@ function LiveEditor(props: {
       window.removeEventListener('keyup', onKey);
       subs.forEach((s) => s.dispose());
       window.removeEventListener('pw-scroll-to-target', onRequest);
-      el.removeEventListener('wheel', onWheel, { capture: true });
       ed.dispose();
       if (liveEditors.get(id) === ed) liveEditors.delete(id);
       editor.current = null;
