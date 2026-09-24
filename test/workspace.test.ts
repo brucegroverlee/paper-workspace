@@ -1,0 +1,282 @@
+import { describe, expect, it } from 'vitest';
+import {
+  EDITOR_GAP,
+  FILE_HEADER_HEIGHT,
+  FILE_PADDING,
+  addSnippet,
+  clampRange,
+  editorHeightFor,
+  editorsOf,
+  emptyWorkspace,
+  findFreePosition,
+  isEditorNode,
+  isFileNode,
+  parseWorkspace,
+  relocateRange,
+  restack,
+  stackPosition,
+  serializeWorkspace,
+  type EditorNode,
+  type WorkspaceFile,
+} from '../src/shared/workspace';
+import { isAbsoluteWorkspacePath, sanitizeWorkspaceName, toWorkspacePath } from '../src/shared/paths';
+
+const sample: WorkspaceFile = {
+  version: 2,
+  nodes: [
+    { id: 'f1', type: 'file', file: 'src/a.ts', position: { x: 10.6, y: -4.2 }, width: 664, height: 400 },
+    {
+      id: 'e1',
+      type: 'editor',
+      parent: 'f1',
+      target: { start: 3, end: 9 },
+      anchor: 'export function a() {',
+      position: { x: 12, y: 40 },
+      width: 640,
+      height: 300,
+    },
+    { id: 'e2', type: 'editor', parent: 'f1', position: { x: 12, y: 356 }, width: 640, height: 200 },
+  ],
+  edges: [],
+};
+
+let seq = 0;
+const ids = () => (prefix = 'n') => `${prefix}${++seq}`;
+
+describe('parseWorkspace / serializeWorkspace', () => {
+  it('round-trips, rounds coordinates and grows file nodes to contain their editors', () => {
+    const text = serializeWorkspace(sample);
+    const { workspace, error } = parseWorkspace(text);
+    expect(error).toBeUndefined();
+    const file = workspace.nodes.find(isFileNode)!;
+    expect(file.position).toEqual({ x: 11, y: -4 });
+    expect(file.height).toBe(356 + 200 + FILE_PADDING); // grown to fit e2
+    expect(parseWorkspace(serializeWorkspace(workspace)).workspace).toEqual(workspace);
+  });
+
+  it('keeps parents before children and omits the anchor of untargeted editors', () => {
+    const shuffled = { ...sample, nodes: [sample.nodes[2], sample.nodes[1], sample.nodes[0]] };
+    const out = JSON.parse(serializeWorkspace(shuffled));
+    expect(out.nodes.map((n: { id: string }) => n.id)).toEqual(['f1', 'e2', 'e1']);
+    expect(out.nodes[1]).not.toHaveProperty('target');
+    expect(out.nodes[1]).not.toHaveProperty('anchor');
+  });
+
+  it('treats an empty file as an empty workspace', () => {
+    expect(parseWorkspace('   ')).toEqual({ workspace: emptyWorkspace() });
+  });
+
+  it('reports invalid JSON instead of throwing', () => {
+    const r = parseWorkspace('{ nope');
+    expect(r.error).toMatch(/Invalid JSON/);
+    expect(r.workspace.nodes).toEqual([]);
+  });
+
+  it('drops unknown kinds, orphan editors and dangling edges; repairs bad ranges', () => {
+    const { workspace } = parseWorkspace(
+      JSON.stringify({
+        nodes: [
+          { id: 'f', type: 'file', file: 'x.ts' },
+          { id: 'e', type: 'editor', parent: 'f', target: { start: 0, end: -5 } },
+          { id: 'orphan', type: 'editor', parent: 'missing' },
+          { id: 'b', type: 'hologram' },
+        ],
+        edges: [{ id: 'x', source: 'e', target: 'b' }],
+      }),
+    );
+    expect(workspace.nodes.map((n) => n.id)).toEqual(['f', 'e']);
+    expect((workspace.nodes[1] as EditorNode).target).toEqual({ start: 1, end: 1 });
+    expect(workspace.edges).toEqual([]);
+  });
+
+  it('migrates v1 flat code nodes to a file node with one targeted editor', () => {
+    const v1 = {
+      version: 1,
+      nodes: [{ id: 'n1', type: 'code', file: 'src/a.ts', range: { start: 5, end: 12 }, anchor: 'x', position: { x: 100, y: 50 }, width: 560 }],
+      edges: [],
+    };
+    const { workspace } = parseWorkspace(JSON.stringify(v1));
+    expect(workspace.version).toBe(2);
+    const [file, editor] = workspace.nodes;
+    expect(file).toMatchObject({ type: 'file', file: 'src/a.ts', position: { x: 100, y: 50 }, width: 560 });
+    expect(editor).toMatchObject({ type: 'editor', parent: file.id, target: { start: 5, end: 12 }, anchor: 'x' });
+    // A single editor fills its file node below the header.
+    expect(editor).toMatchObject({ position: { x: 0, y: FILE_HEADER_HEIGHT }, width: 560, height: file.height - FILE_HEADER_HEIGHT });
+  });
+
+  it('single-editor files: the file size is authoritative and round-trips without growing', () => {
+    const single = {
+      version: 2,
+      nodes: [
+        { id: 'f', type: 'file', file: 'a.ts', position: { x: 0, y: 0 }, width: 700, height: 500 },
+        { id: 'e', type: 'editor', parent: 'f', position: { x: 12, y: 40 }, width: 300, height: 100 },
+      ],
+      edges: [],
+    };
+    const once = parseWorkspace(JSON.stringify(single)).workspace;
+    expect(once.nodes[1]).toMatchObject({ position: { x: 0, y: FILE_HEADER_HEIGHT }, width: 700, height: 500 - FILE_HEADER_HEIGHT });
+    const twice = parseWorkspace(serializeWorkspace(once)).workspace;
+    expect(twice).toEqual(once);
+  });
+});
+
+describe('addSnippet', () => {
+  const base = { lineHeight: 20, origin: { x: 0, y: 0 }, id: ids() };
+
+  it('creates a file node with one editor for a new file', () => {
+    const r = addSnippet(emptyWorkspace(), { ...base, file: 'src/a.ts', target: { start: 3, end: 6 }, anchor: 'a' });
+    expect(r.created).toBe(true);
+    const [file, editor] = r.workspace.nodes;
+    expect(file.type).toBe('file');
+    expect(editor).toMatchObject({ id: r.editorId, parent: file.id, target: { start: 3, end: 6 }, anchor: 'a' });
+    // One editor = one combined node: the editor fills the file below its header.
+    expect(editor.position).toEqual({ x: 0, y: FILE_HEADER_HEIGHT });
+    expect(file).toMatchObject({ width: editor.width, height: editor.height + FILE_HEADER_HEIGHT });
+  });
+
+  it('adds a second snippet inside the existing file node, below the first, and grows the file', () => {
+    const one = addSnippet(emptyWorkspace(), { ...base, file: 'src/a.ts', target: { start: 3, end: 6 } });
+    const two = addSnippet(one.workspace, { ...base, file: 'src/a.ts', target: { start: 40, end: 50 } });
+    expect(two.created).toBe(true);
+    const file = two.workspace.nodes.find(isFileNode)!;
+    const editors = editorsOf(two.workspace, file.id);
+    expect(editors).toHaveLength(2);
+    expect(two.workspace.nodes.filter(isFileNode)).toHaveLength(1);
+    // The first editor became a padded child of the group, keeping its size.
+    expect(editors[0].position).toEqual({ x: FILE_PADDING, y: FILE_HEADER_HEIGHT });
+    expect(editors[0].width).toBe(one.workspace.nodes.find(isEditorNode)!.width);
+    expect(editors[1].position.y).toBe(editors[0].position.y + editors[0].height + EDITOR_GAP);
+    expect(file.width).toBe(editors[0].width + FILE_PADDING * 2);
+    expect(file.height).toBeGreaterThanOrEqual(editors[1].position.y + editors[1].height + FILE_PADDING);
+  });
+
+  it('reuses an editor whose target already covers the lines', () => {
+    const one = addSnippet(emptyWorkspace(), { ...base, file: 'src/a.ts', target: { start: 3, end: 20 } });
+    const again = addSnippet(one.workspace, { ...base, file: 'src/a.ts', target: { start: 5, end: 8 } });
+    expect(again.created).toBe(false);
+    expect(again.editorId).toBe(one.editorId);
+  });
+
+  it('opening a whole file that is already on the canvas reveals it instead of duplicating', () => {
+    const one = addSnippet(emptyWorkspace(), { ...base, file: 'src/a.ts', target: { start: 3, end: 6 } });
+    const whole = addSnippet(one.workspace, { ...base, file: 'src/a.ts' });
+    expect(whole.created).toBe(false);
+    expect(whole.editorId).toBe(one.editorId);
+  });
+
+  it('places new file nodes without overlapping existing ones', () => {
+    const a = addSnippet(emptyWorkspace(), { ...base, file: 'a.ts' });
+    const b = addSnippet(a.workspace, { ...base, file: 'b.ts' });
+    const [fa, fb] = b.workspace.nodes.filter(isFileNode);
+    expect(fb.position).not.toEqual(fa.position);
+    expect(b.workspace.nodes.filter(isEditorNode)).toHaveLength(2);
+  });
+
+  it('sizes editors to their target within limits', () => {
+    expect(editorHeightFor(undefined, 20)).toBeGreaterThan(300);
+    expect(editorHeightFor({ start: 1, end: 3 }, 20)).toBeLessThan(editorHeightFor({ start: 1, end: 15 }, 20));
+    expect(editorHeightFor({ start: 1, end: 1000 }, 20)).toBeLessThanOrEqual(560);
+  });
+});
+
+describe('ranges', () => {
+  it('clamps to the document', () => {
+    expect(clampRange({ start: 8, end: 20 }, 10)).toEqual({ start: 8, end: 10 });
+    expect(clampRange({ start: 50, end: 60 }, 10)).toEqual({ start: 10, end: 10 });
+    expect(clampRange({ start: 1, end: 5 }, 0)).toEqual({ start: 1, end: 1 });
+  });
+
+  const lines = ['import x;', '', '// moved', 'export function a() {', '  return 1;', '}'];
+
+  it('keeps a range whose anchor still matches', () => {
+    expect(relocateRange(lines, { start: 4, end: 6 }, 'export function a() {')).toEqual({ start: 4, end: 6 });
+  });
+
+  it('follows the anchor when lines were inserted above while the canvas was closed', () => {
+    expect(relocateRange(lines, { start: 2, end: 4 }, 'export function a() {')).toEqual({ start: 4, end: 6 });
+  });
+
+  it('prefers the nearest match when the anchor text repeats', () => {
+    const dup = ['}', 'a', '}', 'b', '}'];
+    expect(relocateRange(dup, { start: 4, end: 4 }, '}').start).toBe(3);
+  });
+
+  it('falls back to the clamped range when the anchor is gone', () => {
+    expect(relocateRange(lines, { start: 5, end: 9 }, 'deleted line')).toEqual({ start: 5, end: 6 });
+  });
+});
+
+describe('layout helpers', () => {
+  it('finds a free slot that does not overlap existing nodes', () => {
+    const existing = [{ position: { x: 0, y: 0 }, width: 100, height: 100 }];
+    const p = findFreePosition(existing, { x: 0, y: 0 }, { width: 100, height: 100 });
+    expect(p.x >= 140 || p.y >= 140).toBe(true);
+  });
+});
+
+describe('paths', () => {
+  it('stores workspace files relative to the workspace root', () => {
+    expect(toWorkspacePath('/c:/repo', '/c:/repo/src/a.ts')).toBe('src/a.ts');
+    expect(toWorkspacePath('/c:/repo/', '/c:/repo/src/a.ts')).toBe('src/a.ts');
+    expect(toWorkspacePath('/C:/Repo', '/c:/repo/src/a.ts')).toBe('src/a.ts');
+    expect(toWorkspacePath('/c:/repo', '/c:/other/a.ts')).toBeUndefined();
+    expect(toWorkspacePath('/c:/repo', '/c:/repository/a.ts')).toBeUndefined();
+  });
+
+  it('recognizes absolute paths and URIs', () => {
+    expect(isAbsoluteWorkspacePath('src/a.ts')).toBe(false);
+    expect(isAbsoluteWorkspacePath('C:/x/a.ts')).toBe(true);
+    expect(isAbsoluteWorkspacePath('/home/a.ts')).toBe(true);
+    expect(isAbsoluteWorkspacePath('vscode-remote://ssh/x.ts')).toBe(true);
+  });
+
+  it('sanitizes workspace names', () => {
+    expect(sanitizeWorkspaceName('  auth/flow: v2.workspace ')).toBe('auth-flow- v2');
+  });
+});
+
+describe('restack', () => {
+  // f1, f2, f3 are top-level; e1..e3 belong to f1 and are interleaved with other items.
+  const items = [
+    { id: 'f1' },
+    { id: 'f2' },
+    { id: 'e1', p: 'f1' },
+    { id: 'f3' },
+    { id: 'e2', p: 'f1' },
+    { id: 'e3', p: 'f1' },
+  ];
+  const group = (t: { p?: string }) => t.p;
+  const ids = (xs: { id: string }[]) => xs.map((x) => x.id).join(',');
+
+  it('moves within the group, keeping other items in their slots', () => {
+    expect(ids(restack(items, group, 'f1', 'front'))).toBe('f2,f3,e1,f1,e2,e3');
+    expect(ids(restack(items, group, 'f3', 'back'))).toBe('f3,f1,e1,f2,e2,e3');
+    expect(ids(restack(items, group, 'f1', 'forward'))).toBe('f2,f1,e1,f3,e2,e3');
+    expect(ids(restack(items, group, 'e3', 'backward'))).toBe('f1,f2,e1,f3,e3,e2');
+  });
+
+  it('returns the same array when nothing changes', () => {
+    expect(restack(items, group, 'f3', 'front')).toBe(items);
+    expect(restack(items, group, 'e1', 'backward')).toBe(items);
+    expect(restack(items, group, 'missing', 'front')).toBe(items);
+  });
+
+  it('reports the position in the group', () => {
+    expect(stackPosition(items, group, 'f3')).toEqual({ isFront: true, isBack: false });
+    expect(stackPosition(items, group, 'e1')).toEqual({ isFront: false, isBack: true });
+  });
+
+  it('survives serialization (relative order of files and of editors is kept)', () => {
+    const workspace = parseWorkspace(
+      JSON.stringify({
+        nodes: [
+          { id: 'b', type: 'file', file: 'b.ts', position: { x: 0, y: 0 }, width: 100, height: 100 },
+          { id: 'a', type: 'file', file: 'a.ts', position: { x: 0, y: 0 }, width: 100, height: 100 },
+          { id: 'eb', type: 'editor', parent: 'b' },
+          { id: 'ea', type: 'editor', parent: 'a' },
+        ],
+      }),
+    ).workspace;
+    expect(ids(parseWorkspace(serializeWorkspace(workspace)).workspace.nodes)).toBe('b,a,eb,ea');
+  });
+});

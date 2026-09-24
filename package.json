@@ -1,0 +1,279 @@
+{
+  "name": "paper-workspace",
+  "displayName": "Paper Workspace",
+  "description": "Open code as movable, editable 'papers' on an infinite canvas. Each paper is a live Monaco editor bound to a range of lines in a real file.",
+  "version": "0.1.0",
+  "publisher": "paper-workspace",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "canvas",
+    "diagram",
+    "code map",
+    "react flow",
+    "whiteboard"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:.paperworkspace/*.workspace"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "Paper Workspace",
+      "properties": {
+        "paperWorkspace.autoSaveLayout": {
+          "type": "boolean",
+          "default": true,
+          "description": "Save the .workspace layout file automatically after moving, resizing or re-ranging workspaces. Source files are saved with Ctrl+S in the canvas."
+        },
+        "paperWorkspace.revealInExplorer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Select the file of the focused paper in the Explorer, like 'explorer.autoReveal' does for normal editors."
+        },
+        "paperWorkspace.minNodeWidth": {
+          "type": "number",
+          "default": 50,
+          "minimum": 20,
+          "maximum": 2000,
+          "description": "Minimum width in pixels a file or snippet node can be resized to. Also editable from the canvas configuration panel."
+        },
+        "paperWorkspace.minNodeHeight": {
+          "type": "number",
+          "default": 50,
+          "minimum": 20,
+          "maximum": 2000,
+          "description": "Minimum height in pixels a file or snippet node can be resized to. Also editable from the canvas configuration panel."
+        },
+        "paperWorkspace.focusPercent": {
+          "type": "number",
+          "default": 80,
+          "minimum": 10,
+          "maximum": 100,
+          "description": "Percentage of the window a paper fills after 'Focus on paper'; higher zooms in more. Also editable from the canvas configuration panel."
+        },
+        "paperWorkspace.canvasBackground": {
+          "type": "string",
+          "format": "color-hex",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "default": "#e4e5e8",
+          "description": "Background color of the canvas (#rrggbb). Also editable from the canvas configuration panel."
+        }
+      }
+    },
+    "customEditors": [
+      {
+        "viewType": "paperWorkspace.canvas",
+        "displayName": "Paper Workspace",
+        "selector": [
+          {
+            "filenamePattern": "*.workspace"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "paperWorkspace",
+          "title": "Paper Workspace",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "paperWorkspace": [
+        {
+          "id": "paperWorkspace.workspaces",
+          "name": "Workspaces"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "paperWorkspace.workspaces",
+        "contents": "No paper workspaces yet.\n[New Workspace](command:paperWorkspace.newWorkspace)",
+        "when": "workspaceFolderCount > 0"
+      },
+      {
+        "view": "paperWorkspace.workspaces",
+        "contents": "Open a folder to use Paper Workspace.",
+        "when": "workspaceFolderCount == 0"
+      }
+    ],
+    "commands": [
+      {
+        "command": "paperWorkspace.newWorkspace",
+        "title": "New Workspace",
+        "category": "Paper Workspace",
+        "icon": "$(add)"
+      },
+      {
+        "command": "paperWorkspace.refresh",
+        "title": "Refresh",
+        "category": "Paper Workspace",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "paperWorkspace.setMode",
+        "title": "Set Mode…",
+        "category": "Paper Workspace",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "paperWorkspace.openWorkspace",
+        "title": "Open Workspace",
+        "category": "Paper Workspace"
+      },
+      {
+        "command": "paperWorkspace.setTarget",
+        "title": "Set as Target",
+        "category": "Paper Workspace",
+        "icon": "$(target)"
+      },
+      {
+        "command": "paperWorkspace.renameWorkspace",
+        "title": "Rename…",
+        "category": "Paper Workspace"
+      },
+      {
+        "command": "paperWorkspace.deleteWorkspace",
+        "title": "Delete",
+        "category": "Paper Workspace"
+      },
+      {
+        "command": "paperWorkspace.addSelection",
+        "title": "Add Selection to Paper Workspace",
+        "category": "Paper Workspace"
+      },
+      {
+        "command": "paperWorkspace.addFile",
+        "title": "Add to Paper Workspace",
+        "category": "Paper Workspace"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "paperWorkspace.newWorkspace",
+          "when": "view == paperWorkspace.workspaces",
+          "group": "navigation@1"
+        },
+        {
+          "command": "paperWorkspace.setMode",
+          "when": "view == paperWorkspace.workspaces",
+          "group": "navigation@2"
+        },
+        {
+          "command": "paperWorkspace.refresh",
+          "when": "view == paperWorkspace.workspaces",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "paperWorkspace.setTarget",
+          "when": "view == paperWorkspace.workspaces && viewItem == workspace",
+          "group": "inline"
+        },
+        {
+          "command": "paperWorkspace.openWorkspace",
+          "when": "view == paperWorkspace.workspaces && viewItem =~ /^workspace/",
+          "group": "1_open"
+        },
+        {
+          "command": "paperWorkspace.setTarget",
+          "when": "view == paperWorkspace.workspaces && viewItem == workspace",
+          "group": "1_open"
+        },
+        {
+          "command": "paperWorkspace.renameWorkspace",
+          "when": "view == paperWorkspace.workspaces && viewItem =~ /^workspace/",
+          "group": "2_edit"
+        },
+        {
+          "command": "paperWorkspace.deleteWorkspace",
+          "when": "view == paperWorkspace.workspaces && viewItem =~ /^workspace/",
+          "group": "2_edit"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "paperWorkspace.addSelection",
+          "when": "paperWorkspace.enabled && editorTextFocus",
+          "group": "paperWorkspace@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "paperWorkspace.addFile",
+          "when": "paperWorkspace.enabled && !explorerResourceIsFolder",
+          "group": "paperWorkspace@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "paperWorkspace.openWorkspace",
+          "when": "false"
+        },
+        {
+          "command": "paperWorkspace.setTarget",
+          "when": "false"
+        },
+        {
+          "command": "paperWorkspace.renameWorkspace",
+          "when": "false"
+        },
+        {
+          "command": "paperWorkspace.deleteWorkspace",
+          "when": "false"
+        },
+        {
+          "command": "paperWorkspace.addFile",
+          "when": "false"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "paperWorkspace.addSelection",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p",
+        "when": "paperWorkspace.enabled && editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "test:integration": "npm run build && node scripts/integration.mjs",
+    "dev:webview": "node scripts/build.mjs --harness && node scripts/dev-server.mjs",
+    "package": "npm run build -- --production && vsce package --no-dependencies",
+    "vscode:prepublish": "node scripts/build.mjs --production"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "@xyflow/react": "^12.11.6",
+    "esbuild": "^0.28.2",
+    "monaco-editor": "^0.56.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.1"
+  }
+}

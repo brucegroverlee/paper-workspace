@@ -1,0 +1,1381 @@
+/* Paper Workspace canvas. Colors come from VS Code theme variables so the canvas follows the
+   user's theme in VS Code, Cursor and Windsurf/Devin; fallbacks are for the browser harness. */
+
+:root {
+  /* Canvas background, dots and floating-text color are overridden from the config panel setting (App.tsx). */
+  --pw-canvas-bg: #e4e5e8;
+  --pw-dot: rgba(0, 0, 0, 0.28);
+  --pw-canvas-fg: #1f2328;
+  --pw-paper-bg: var(--vscode-editorWidget-background, #2a2f3a);
+  --pw-paper-border: var(--vscode-widget-border, var(--vscode-editorWidget-border, #3a4050));
+  --pw-code-bg: var(--vscode-editor-background, #22262e);
+  --pw-fg: var(--vscode-foreground, #cccccc);
+  --pw-muted: var(--vscode-descriptionForeground, #8b949e);
+  --pw-accent: var(--vscode-focusBorder, #3794ff);
+  --pw-toolbar-bg: var(--vscode-editorWidget-background, #252a33);
+  --pw-hover: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+  --pw-dirty: var(--vscode-editorGutter-modifiedBackground, #e2c08d);
+  --pw-error: var(--vscode-errorForeground, #f48771);
+  --pw-shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  --pw-font: var(--vscode-font-family, system-ui, -apple-system, 'Segoe UI', sans-serif);
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--pw-canvas-bg);
+  color: var(--pw-fg);
+  font-family: var(--pw-font);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+.pw-boot {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--pw-muted);
+}
+
+.pw-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.pw-canvas .react-flow {
+  --xy-background-color: var(--pw-canvas-bg);
+  --xy-background-pattern-color: var(--pw-dot);
+  --xy-minimap-background-color: var(--pw-toolbar-bg);
+  --xy-minimap-mask-background-color: rgba(0, 0, 0, 0.35);
+  --xy-minimap-node-background-color: var(--pw-paper-border);
+  --xy-selection-background-color: color-mix(in srgb, var(--pw-accent) 12%, transparent);
+  --xy-selection-border: 1px dashed var(--pw-accent);
+  --xy-node-boxshadow-selected: none;
+  background: var(--pw-canvas-bg);
+}
+
+.pw-canvas.tool-hand .react-flow__pane {
+  cursor: grab;
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* ---- toolbar ---------------------------------------------------------------------------------- */
+
+.pw-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pw-tool-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: var(--pw-toolbar-bg);
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px var(--pw-shadow);
+}
+
+.pw-tool {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pw-fg);
+  cursor: pointer;
+}
+
+.pw-tool:hover:not(:disabled) {
+  background: var(--pw-hover);
+}
+
+.pw-tool.active {
+  color: var(--pw-accent);
+  background: color-mix(in srgb, var(--pw-accent) 15%, transparent);
+}
+
+.pw-tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pw-tool:focus-visible,
+.pw-icon:focus-visible {
+  outline: 1px solid var(--pw-accent);
+  outline-offset: 1px;
+}
+
+.pw-zoom-label {
+  font-size: 11px;
+  color: var(--pw-muted);
+  padding: 6px 0 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pw-zoom-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 20px;
+  height: 72px;
+  margin: 4px 0;
+  accent-color: var(--pw-accent);
+  cursor: pointer;
+}
+
+/* ---- file nodes (groups) ---------------------------------------------------------------------- */
+
+.pw-file {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--pw-paper-bg) 70%, transparent);
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px var(--pw-shadow);
+  font-family: var(--pw-font);
+}
+
+.pw-file.selected {
+  border-color: var(--pw-accent);
+  box-shadow: 0 0 0 1px var(--pw-accent), 0 4px 16px var(--pw-shadow);
+}
+
+/* Combined node (file with a single editor): header + embedded editor, no inner panel. */
+.pw-file.single {
+  display: flex;
+  flex-direction: column;
+  background: var(--pw-code-bg);
+}
+
+.pw-file.single .pw-file-header {
+  flex: none;
+  border-bottom: 1px solid var(--pw-paper-border);
+  background: var(--pw-paper-bg);
+  border-radius: 11px 11px 0 0;
+}
+
+.pw-file.single .pw-editor-body {
+  border-radius: 0 0 11px 11px;
+}
+
+.pw-file.single:focus-within {
+  border-color: var(--pw-accent);
+}
+
+.pw-file-header,
+.pw-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  cursor: grab;
+  user-select: none;
+}
+
+.pw-file-header {
+  height: 40px;
+  overflow: hidden; /* nodes can now be narrower than their header buttons */
+  padding: 0 8px 0 14px;
+}
+
+.react-flow__node.dragging .pw-file-header,
+.react-flow__node.dragging .pw-editor-header {
+  cursor: grabbing;
+}
+
+.pw-badge {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--pw-muted);
+}
+
+.pw-badge.lang-typescript,
+.pw-badge.lang-typescriptreact {
+  color: #3b8eea;
+}
+.pw-badge.lang-javascript,
+.pw-badge.lang-javascriptreact {
+  color: #d7ba3d;
+}
+.pw-badge.lang-python {
+  color: #4e9a58;
+}
+
+.pw-path {
+  flex: 0 1 auto; /* natural width; shrinks with an ellipsis only when space runs out */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl; /* keep the file name visible when the path is truncated */
+  text-align: left;
+  font-size: 13px;
+}
+
+.pw-dir {
+  color: var(--pw-muted);
+}
+
+.pw-base {
+  font-weight: 600;
+}
+
+.pw-dirty {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pw-dirty);
+}
+
+.pw-spacer {
+  flex: 1;
+}
+
+.pw-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pw-muted);
+  cursor: pointer;
+}
+
+.pw-icon:hover {
+  background: var(--pw-hover);
+  color: var(--pw-fg);
+}
+
+/* ---- editor nodes (snippets inside a file) --------------------------------------------------- */
+
+.pw-editor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--pw-code-bg);
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 8px;
+  /* No overflow clipping here: it would hide the resize handles, which sit on the node's edges.
+     The header and body clip themselves to the rounded corners instead. */
+  font-family: var(--pw-font);
+}
+
+/* Outline drawn as an overlay so Monaco's opaque background can't paint over it. */
+.pw-editor::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.pw-editor.selected::after,
+.pw-editor:focus-within::after {
+  box-shadow: inset 0 0 0 1px var(--pw-accent);
+}
+
+.pw-editor-header {
+  flex: none;
+  height: 30px;
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--pw-paper-border);
+  background: var(--pw-paper-bg);
+  border-radius: 7px 7px 0 0;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.pw-editor-icon {
+  color: var(--pw-muted);
+  font-size: 14px;
+}
+
+.pw-target-label {
+  color: var(--pw-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pw-editor-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  cursor: text;
+}
+
+.pw-editor .pw-editor-body {
+  border-radius: 0 0 7px 7px;
+}
+
+/* The body itself doesn't clip (suggestions and hovers may extend past a small paper); its contents do. */
+.pw-monaco,
+.pw-preview,
+.pw-loading,
+.pw-error {
+  border-radius: inherit;
+}
+
+.pw-monaco {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* Monaco's overflowing widgets (suggest list, hover, parameter hints), outside the clipped editor. */
+.pw-editor-body > .pw-monaco-overflow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  /* It carries .monaco-editor for the widgets' styles; that class would also paint the editor background. */
+  background: transparent;
+}
+
+.pw-editor-body > .pw-monaco-overflow > * {
+  pointer-events: auto;
+}
+
+/* The paper being typed in or pointed at stays above its neighbors, so its hovers and suggestions are not covered
+   by them. Widgets are DOM children of their paper, so moving the mouse onto one keeps the paper hovered. */
+.react-flow__node:focus-within,
+.react-flow__node:hover {
+  z-index: 1000 !important;
+}
+
+/* Target lines: tinted background plus an accent bar in the decorations lane. */
+.pw-target-line {
+  background: color-mix(in srgb, var(--pw-accent) 9%, transparent);
+}
+
+.pw-target-gutter {
+  background: var(--pw-accent);
+  width: 3px !important;
+  margin-left: 3px;
+}
+
+/* Ctrl/Cmd held over a symbol or import path: looks like a link, as in VS Code. */
+.pw-goto-link {
+  text-decoration: underline;
+  color: var(--vscode-editorLink-activeForeground, var(--pw-accent)) !important;
+  cursor: pointer;
+}
+
+.pw-back-pill {
+  position: absolute;
+  right: 18px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid var(--pw-accent);
+  border-radius: 999px;
+  background: var(--pw-toolbar-bg);
+  color: var(--pw-fg);
+  font: 12px var(--pw-font);
+  box-shadow: 0 2px 8px var(--pw-shadow);
+  cursor: pointer;
+}
+
+.pw-back-pill.above {
+  top: 8px;
+}
+
+.pw-back-pill.below {
+  bottom: 14px;
+}
+
+.pw-back-pill:hover {
+  background: color-mix(in srgb, var(--pw-accent) 20%, var(--pw-toolbar-bg));
+}
+
+.pw-preview {
+  position: absolute;
+  inset: 4px 0 0 16px;
+  overflow: hidden;
+  white-space: pre;
+  color: var(--vscode-editor-foreground, #d4d4d4);
+}
+
+.pw-lines {
+  margin: 0;
+  font: inherit;
+}
+
+.pw-loading,
+.pw-error {
+  padding: 8px 16px;
+  color: var(--pw-muted);
+}
+
+.pw-error {
+  color: var(--pw-error);
+  white-space: normal;
+}
+
+/* Resizers (shown on the selected node). */
+.react-flow__resize-control.line.pw-resize-line {
+  border-color: transparent;
+}
+
+.react-flow__resize-control.handle.pw-resize-handle {
+  z-index: 6; /* above the editor's outline overlay and Monaco */
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--pw-accent);
+  border: 1px solid var(--pw-canvas-bg);
+}
+
+/* ---- groups --------------------------------------------------------------------------------------- */
+
+.pw-group {
+  cursor: grab;
+  --pw-group-fill: color-mix(in srgb, var(--pw-paper-bg) 45%, transparent);
+  --pw-group-line: var(--pw-paper-border);
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--pw-group-fill);
+  border: 1.5px solid var(--pw-group-line);
+  border-radius: 14px;
+  font-family: var(--pw-font);
+  color: var(--pw-fg);
+}
+
+.pw-group.colored {
+  --pw-group-fill: color-mix(in srgb, var(--pw-group-color) 60%, transparent);
+  --pw-group-line: color-mix(in srgb, var(--pw-group-color) 85%, var(--pw-fg) 15%);
+}
+
+.pw-group.on-light {
+  color: #1f2328;
+}
+
+.pw-group.selected {
+  border-color: var(--pw-accent);
+  box-shadow: 0 0 0 1px var(--pw-accent);
+}
+
+.react-flow__node.pw-drop-target .pw-group {
+  border-color: var(--pw-accent);
+  border-style: dashed;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pw-accent) 30%, transparent);
+}
+
+.pw-group-header {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 14px;
+  box-sizing: border-box;
+  cursor: grab;
+  user-select: none;
+}
+
+.react-flow__node.dragging .pw-group,
+.react-flow__node.dragging .pw-group-header {
+  cursor: grabbing;
+}
+
+.pw-group-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pw-group-title.empty {
+  opacity: 0.55;
+  font-weight: 400;
+  font-style: italic;
+}
+
+.pw-group-title-input {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border: 1px solid var(--pw-accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--pw-canvas-bg) 60%, transparent);
+  color: var(--pw-fg);
+  font: 600 14px var(--pw-font);
+  outline: none;
+}
+
+/* ---- floating text & sticky notes ------------------------------------------------------------------- */
+
+.pw-text-node {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  font-family: var(--pw-font);
+  line-height: 1.35;
+  cursor: default;
+}
+
+.pw-text {
+  color: var(--pw-canvas-fg);
+  border-radius: 4px;
+  outline: 1px dashed transparent;
+  outline-offset: 2px;
+}
+
+.pw-text.selected,
+.pw-text.editing {
+  outline-color: var(--pw-accent);
+}
+
+.pw-note {
+  padding: 12px 14px;
+  border-radius: 4px 4px 4px 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), 0 6px 16px var(--pw-shadow);
+  overflow: hidden;
+}
+
+.pw-note.selected,
+.pw-note.editing {
+  box-shadow: 0 0 0 2px var(--pw-accent), 0 6px 16px var(--pw-shadow);
+}
+
+.pw-text-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pw-text-placeholder {
+  opacity: 0.45;
+  font-style: italic;
+}
+
+.pw-text-input {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+
+/* ---- media -------------------------------------------------------------------------------------- */
+
+.pw-media {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--pw-paper-bg);
+  box-shadow: 0 4px 16px var(--pw-shadow);
+  outline: 1px solid transparent;
+}
+
+.pw-media.selected {
+  outline: 2px solid var(--pw-accent);
+}
+
+.pw-media img,
+.pw-media video {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.pw-media-grip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--pw-muted);
+  cursor: grab;
+}
+
+.pw-media-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pw-media-error {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--pw-muted);
+}
+
+/* ---- floating node toolbar (above the selected group / text / note / media) ------------------------ */
+
+.react-flow__node-toolbar.pw-node-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--pw-font);
+}
+
+.pw-node-toolbar-bar,
+.pw-palette {
+  background: var(--pw-toolbar-bg);
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px var(--pw-shadow);
+}
+
+.pw-node-toolbar-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+}
+
+.pw-node-toolbar-button {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pw-fg);
+  cursor: pointer;
+}
+
+.pw-node-toolbar-button:hover {
+  background: var(--pw-hover);
+}
+
+.pw-node-toolbar-button.active {
+  color: var(--pw-accent);
+  background: color-mix(in srgb, var(--pw-accent) 15%, transparent);
+}
+
+.pw-node-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--pw-paper-border);
+}
+
+/* Text color: an "A" underlined with the color. */
+.pw-text-color-icon {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  font: 700 14px/1 var(--pw-font);
+  gap: 2px;
+}
+
+.pw-text-color-bar {
+  width: 16px;
+  height: 4px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.5);
+}
+
+.pw-text-color-bar.default {
+  background: linear-gradient(90deg, #1f2328 50%, #f0f0f0 50%);
+}
+
+/* ---- font size / weight dropdowns ---- */
+
+.pw-dropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.pw-font-size {
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.pw-font-size:hover,
+.pw-font-size:focus-within {
+  border-color: var(--pw-paper-border);
+}
+
+.pw-font-size-input {
+  width: 30px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0 0 0 6px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--pw-fg);
+  font: 12px var(--pw-font);
+  font-variant-numeric: tabular-nums;
+}
+
+.pw-dropdown-toggle,
+.pw-dropdown-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pw-fg);
+  font: 12px var(--pw-font);
+  cursor: pointer;
+}
+
+.pw-dropdown-button {
+  min-width: 92px;
+  justify-content: space-between;
+  padding: 0 6px 0 8px;
+}
+
+.pw-dropdown-toggle .codicon,
+.pw-dropdown-button .codicon {
+  font-size: 12px;
+  color: var(--pw-muted);
+}
+
+.pw-dropdown-toggle:hover,
+.pw-dropdown-button:hover {
+  background: var(--pw-hover);
+}
+
+.pw-dropdown-toggle.active,
+.pw-dropdown-button.active {
+  color: var(--pw-accent);
+  background: color-mix(in srgb, var(--pw-accent) 15%, transparent);
+}
+
+.pw-dropdown-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 100%;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  box-sizing: border-box;
+  background: var(--pw-toolbar-bg);
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px var(--pw-shadow);
+}
+
+.pw-font-size .pw-dropdown-menu {
+  min-width: 72px;
+}
+
+.pw-dropdown-menu.below {
+  bottom: auto;
+  top: calc(100% + 10px);
+}
+
+.pw-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pw-fg);
+  font-family: var(--pw-font);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pw-dropdown-item:hover {
+  background: var(--pw-hover);
+}
+
+.pw-dropdown-item.active {
+  color: var(--pw-accent);
+}
+
+.pw-dropdown-item .codicon {
+  font-size: 12px;
+}
+
+.pw-dropdown-item .codicon.hidden {
+  visibility: hidden;
+}
+
+.pw-swatch-dot {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  box-sizing: border-box;
+}
+
+/* "Theme default": a diagonal slash through an empty dot. */
+.pw-swatch-dot.default {
+  background: linear-gradient(135deg, transparent 45%, var(--pw-error) 45%, var(--pw-error) 55%, transparent 55%);
+}
+
+.pw-palette {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.pw-palette.below {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+
+.pw-palette-row {
+  display: grid;
+  grid-template-columns: repeat(8, 28px);
+  gap: 10px;
+}
+
+.pw-swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  cursor: pointer;
+  transition: transform 0.08s;
+}
+
+.pw-swatch:hover {
+  transform: scale(1.12);
+}
+
+.pw-swatch.active {
+  box-shadow: 0 0 0 2px var(--pw-toolbar-bg), 0 0 0 4px var(--pw-accent);
+}
+
+.pw-palette-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.pw-palette-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pw-fg);
+  font: 12px var(--pw-font);
+  cursor: pointer;
+}
+
+.pw-palette-link:hover,
+.pw-palette-link.active {
+  background: var(--pw-hover);
+}
+
+.pw-palette-link .pw-swatch-dot {
+  width: 14px;
+  height: 14px;
+}
+
+.pw-palette-link input[type='color'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* ---- config panel (opens beside the toolbar) --------------------------------------------------- */
+
+.pw-config {
+  position: absolute;
+  top: 16px;
+  left: 66px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 240px;
+  max-width: calc(100% - 82px);
+  box-sizing: border-box;
+  padding: 10px 12px 12px;
+  background: var(--pw-toolbar-bg);
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px var(--pw-shadow);
+  font-family: var(--pw-font);
+  font-size: 12px;
+}
+
+.pw-config-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pw-config-field {
+  display: grid;
+  grid-template-columns: 1fr 72px;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+
+.pw-config-label {
+  color: var(--pw-fg);
+}
+
+.pw-config-hint {
+  grid-column: 1 / -1;
+  color: var(--pw-muted);
+  font-size: 11px;
+}
+
+.pw-config-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 1px solid var(--vscode-input-border, var(--pw-paper-border));
+  border-radius: 4px;
+  background: var(--vscode-input-background, transparent);
+  color: var(--vscode-input-foreground, var(--pw-fg));
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.pw-config-field.wide {
+  grid-template-columns: 1fr 104px;
+}
+
+.pw-config-color {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.pw-config-swatch {
+  position: relative;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.pw-config-field .pw-config-swatch input[type='color'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.pw-config-color input[type='text'] {
+  min-width: 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.pw-config-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--vscode-textLink-foreground, var(--pw-accent));
+  font: inherit;
+  cursor: pointer;
+}
+
+.pw-config-link:hover {
+  text-decoration: underline;
+}
+
+.pw-config-field input:focus {
+  outline: 1px solid var(--pw-accent);
+  outline-offset: -1px;
+}
+
+.pw-config-reset {
+  align-self: flex-start;
+  padding: 3px 8px;
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pw-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pw-config-reset:hover {
+  background: var(--pw-hover);
+  color: var(--pw-fg);
+}
+
+
+/* ---- node context menu (stacking order) -------------------------------------------------------- */
+
+.pw-menu {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--vscode-menu-background, var(--pw-toolbar-bg));
+  color: var(--vscode-menu-foreground, var(--pw-fg));
+  border: 1px solid var(--vscode-menu-border, var(--pw-paper-border));
+  border-radius: 6px;
+  box-shadow: 0 2px 8px var(--pw-shadow);
+  font-family: var(--pw-font);
+  font-size: 12px;
+}
+
+.pw-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pw-menu-item:hover:not(:disabled) {
+  background: var(--vscode-menu-selectionBackground, var(--pw-hover));
+  color: var(--vscode-menu-selectionForeground, inherit);
+}
+
+.pw-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--vscode-menu-separatorBackground, var(--pw-paper-border));
+}
+
+.pw-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---- overlays --------------------------------------------------------------------------------- */
+
+.pw-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  max-width: 460px;
+  margin: auto;
+  text-align: center;
+  color: var(--pw-muted);
+  pointer-events: none;
+  line-height: 1.6;
+}
+
+.pw-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--pw-fg);
+}
+
+kbd {
+  font-family: inherit;
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 4px;
+  background: var(--pw-toolbar-bg);
+}
+
+.pw-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: 70%;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+  border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
+  color: var(--pw-fg);
+}
+
+.pw-help {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.pw-help-card {
+  width: min(560px, calc(100% - 32px));
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: var(--pw-toolbar-bg);
+  border: 1px solid var(--pw-paper-border);
+  box-shadow: 0 8px 32px var(--pw-shadow);
+}
+
+.pw-help-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.pw-help dl {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.pw-help dl > div {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 12px;
+}
+
+.pw-help dt {
+  color: var(--pw-fg);
+  font-weight: 600;
+}
+
+.pw-help dd {
+  margin: 0;
+  color: var(--pw-muted);
+}
+
+/* ---- diagram shapes ------------------------------------------------------------------------------- */
+
+.pw-shape {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  font-family: var(--pw-font);
+  line-height: 1.3;
+  outline: 1px dashed transparent;
+  outline-offset: 3px;
+}
+
+.pw-shape.selected,
+.pw-shape.editing {
+  outline-color: var(--pw-accent);
+}
+
+.pw-shape-svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.pw-shape-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Labels outside the fill (no fill, or under a stick figure) follow the canvas background. */
+.pw-shape-label.on-canvas {
+  color: var(--pw-canvas-fg);
+}
+
+.pw-shape-label.below {
+  align-items: flex-start;
+  padding-top: 4px;
+}
+
+.pw-shape-label .pw-text-input {
+  text-align: center;
+}
+
+/* Line color: a hollow square outlined with the color. */
+.pw-stroke-icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--pw-fg);
+  border-radius: 3px;
+  box-sizing: border-box;
+  /* A light ring keeps dark line colors visible on the dark toolbar. */
+  box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.6), inset 0 0 0 1px rgba(128, 128, 128, 0.6);
+}
+
+/* ---- shapes panel (opens beside the toolbar, like the configuration) -------------------------------- */
+
+.pw-config.pw-shapes {
+  width: 236px;
+  max-height: calc(100% - 32px);
+  gap: 8px;
+}
+
+.pw-shapes-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid var(--vscode-input-border, var(--pw-paper-border));
+  border-radius: 4px;
+  background: var(--vscode-input-background, transparent);
+  color: var(--vscode-input-foreground, var(--pw-fg));
+  font: inherit;
+}
+
+.pw-shapes-search:focus {
+  outline: 1px solid var(--pw-accent);
+  outline-offset: -1px;
+}
+
+.pw-shapes-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+
+.pw-shapes-section + .pw-shapes-section {
+  margin-top: 4px;
+}
+
+.pw-shapes-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--pw-fg);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pw-shapes-heading:hover {
+  color: var(--pw-accent);
+}
+
+.pw-shapes-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  padding: 2px 0 6px;
+}
+
+.pw-shape-thumb {
+  display: grid;
+  place-items: center;
+  height: 40px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pw-fg);
+  cursor: grab;
+}
+
+.pw-shape-thumb:hover {
+  background: var(--pw-hover);
+  border-color: var(--pw-paper-border);
+}
+
+.pw-shape-thumb:active {
+  cursor: grabbing;
+}
+
+.pw-shape-thumb:focus-visible {
+  outline: 1px solid var(--pw-accent);
+  outline-offset: -1px;
+}
+
+.pw-shapes-empty {
+  grid-column: 1 / -1;
+  padding: 8px 0;
+  color: var(--pw-muted);
+}

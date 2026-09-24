@@ -1,0 +1,1206 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Background,
+  BackgroundVariant,
+  MiniMap,
+  ReactFlow,
+  useNodesState,
+  useReactFlow,
+  type NodeChange,
+  type Viewport,
+} from '@xyflow/react';
+import {
+  DEFAULT_EDITOR_HEIGHT,
+  DEFAULT_EDITOR_WIDTH,
+  DEFAULT_CANVAS_BACKGROUND,
+  DEFAULT_FOCUS_PERCENT,
+  DEFAULT_GROUP_SIZE,
+  DEFAULT_MIN_NODE_SIZE,
+  DEFAULT_NOTE_SIZE,
+  DEFAULT_TEXT_SIZE,
+  GROUP_HEADER_HEIGHT,
+  GROUP_PADDING,
+  WORKSPACE_VERSION,
+  isVideoPath,
+  isMediaPath,
+  mediaSizeFor,
+  editorHeightFor,
+  FILE_HEADER_HEIGHT,
+  FILE_PADDING,
+  fileSizeFor,
+  singleFileSize,
+  newId,
+  nextEditorSlot,
+  restack,
+  stackPosition,
+  type StackOp,
+  isLightColor,
+  type EditorNode as WorkspaceEditorNode,
+  type LineRange,
+  type WorkspaceEdge,
+  type WorkspaceFile,
+  type WorkspaceNode,
+} from '../shared/workspace';
+import { isAbsoluteWorkspacePath } from '../shared/paths';
+import type { CanvasConfig, EditorSettings, HostToWebview } from '../shared/protocol';
+import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isWithin, reparent, sizeOf } from './boardLayout';
+import { GroupNode, MediaNode, ShapeNode, TextNode, editWhenMounted } from './BoardNodes';
+import { WorkspaceContext, type WorkspaceActions, type RFEditorNode, type RFFileNode, type RFGroupNode, type RFNode, type RFShapeNode } from './context';
+import { docStore } from './docStore';
+import { EditorNode, editorHasFocus, focusLastEditor, lastFocusedEditorId, requestScrollToTarget, selectedLines } from './EditorNode';
+import { FileNode } from './FileNode';
+import { watchHostTheme } from './monaco';
+import { handleLanguageMessage, registerLanguageBridge } from './language';
+import { ConfigPanel, HelpOverlay, Toolbar, ZOOM_LIMITS, type CreateKind, type Tool } from './Toolbar';
+import { ShapesPanel } from './ShapesPanel';
+import { SHAPE_DRAG_TYPE, shapeDef } from './shapes';
+import { host, onHostMessage } from './vscodeApi';
+
+const nodeTypes = { file: FileNode, editor: EditorNode, group: GroupNode, text: TextNode, note: TextNode, media: MediaNode, shape: ShapeNode };
+const COMMIT_DELAY = 250;
+
+interface PersistedState {
+  viewport?: Viewport;
+}
+
+const isEditor = (n: RFNode): n is RFEditorNode => n.type === 'editor';
+const isFile = (n: RFNode): n is RFFileNode => n.type === 'file';
+
+const isBox = (n: RFNode) => n.type !== 'editor';
+const isGroup = (n: RFNode): n is RFGroupNode => n.type === 'group';
+
+/** React Flow props of a box node (anything but an editor) by kind. */
+function boxProps(type: RFNode['type']): { dragHandle?: string } {
+  if (type === 'file') return { dragHandle: '.pw-file-header' };
+  return {};
+}
+
+function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
+  const selected = new Set(prev.filter((n) => n.selected).map((n) => n.id));
+  const fileById = new Map<string, string>();
+  const out: RFNode[] = [];
+  for (const n of workspace.nodes) {
+    if (n.type === 'editor') continue;
+    const base = {
+      id: n.id,
+      ...(n.parent !== undefined ? { parentId: n.parent } : {}),
+      position: n.position,
+      width: n.width,
+      height: n.height,
+      // Sizes are explicit, so mark nodes as measured: fitView (and reveal) wait for every node to be
+      // measured, and offscreen nodes (onlyRenderVisibleElements) or rebuilt node objects never would be.
+      measured: { width: n.width, height: n.height },
+      selected: selected.has(n.id),
+      ...boxProps(n.type),
+    };
+    if (n.type === 'file') {
+      fileById.set(n.id, n.file);
+      out.push({ ...base, type: 'file', data: { file: n.file } });
+    } else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color } });
+    else if (n.type === 'media') out.push({ ...base, type: 'media', data: { src: n.src } });
+    else if (n.type === 'shape')
+      out.push({
+        ...base,
+        type: 'shape',
+        data: { shape: n.shape, text: n.text, color: n.color, strokeColor: n.strokeColor, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight },
+      });
+    else out.push({ ...base, type: n.type, data: { text: n.text, color: n.color, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight } });
+  }
+  for (const n of workspace.nodes) {
+    if (n.type !== 'editor') continue;
+    out.push({
+      id: n.id,
+      type: 'editor',
+      parentId: n.parent,
+      expandParent: true,
+      position: n.position,
+      width: n.width,
+      height: n.height,
+      measured: { width: n.width, height: n.height },
+      dragHandle: '.pw-editor-header',
+      selected: selected.has(n.id),
+      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor },
+    });
+  }
+  return normalizeLayout(out);
+}
+
+const sized = <T extends RFNode>(n: T, width: number, height: number): T => ({ ...n, width, height, measured: { width, height } });
+
+/**
+ * A file with ONE editor is a combined node: the editor's React Flow node is hidden and FileNode embeds it,
+ * with the file's size authoritative. With several editors the file is a group of visible, padded editors.
+ * Handles both transitions: collapse (file takes the remaining editor's size) and expand (the embedded
+ * editor keeps its size and becomes a padded child).
+ */
+function normalizeLayout(ns: RFNode[]): RFNode[] {
+  const children = new Map<string, RFEditorNode[]>();
+  for (const n of ns) if (isEditor(n)) children.set(n.parentId!, [...(children.get(n.parentId!) ?? []), n]);
+  const updates = new Map<string, RFNode>();
+  for (const f of ns.filter(isFile)) {
+    const kids = children.get(f.id) ?? [];
+    let file = f;
+    if (kids.length === 1) {
+      const k = kids[0];
+      if (!k.hidden) {
+        const size = singleFileSize({ width: k.width ?? DEFAULT_EDITOR_WIDTH, height: k.height ?? DEFAULT_EDITOR_HEIGHT });
+        file = sized(file, size.width, size.height);
+      }
+      const w = file.width ?? DEFAULT_EDITOR_WIDTH;
+      const h = file.height ?? DEFAULT_EDITOR_HEIGHT;
+      // No expandParent while embedded: React Flow's resizer never shrinks a parent below such children,
+      // even hidden ones, so the combined node could otherwise only grow.
+      const embedded = { ...k, hidden: true, expandParent: false, selected: false, position: { x: 0, y: FILE_HEADER_HEIGHT } };
+      updates.set(k.id, sized(embedded, w, h - FILE_HEADER_HEIGHT));
+    } else if (kids.length > 1) {
+      const laid = kids.map((k) => {
+        if (!k.hidden) return k;
+        const e = { ...k, hidden: false, expandParent: true, position: { x: FILE_PADDING, y: FILE_HEADER_HEIGHT } };
+        updates.set(k.id, e);
+        return e;
+      });
+      const size = fileSizeFor(
+        laid.map((k) => ({ position: k.position, width: k.width ?? DEFAULT_EDITOR_WIDTH, height: k.height ?? DEFAULT_EDITOR_HEIGHT })),
+      );
+      const w = Math.max(file.width ?? 0, size.width);
+      const h = Math.max(file.height ?? 0, size.height);
+      if (w !== file.width || h !== file.height) file = sized(file, w, h);
+    }
+    if (file !== f) updates.set(f.id, file);
+  }
+  return updates.size ? ns.map((n) => updates.get(n.id) ?? n) : ns;
+}
+
+/** Boxes stack among the boxes of their group (or the canvas), editors among the editors of their file. */
+const stackGroup = (n: RFNode) => n.parentId;
+
+function toWorkspace(nodes: RFNode[], edges: WorkspaceEdge[]): WorkspaceFile {
+  nodes = normalizeLayout(nodes); // sync embedded editors with their (possibly resized) file
+  const out: WorkspaceNode[] = nodes.map((n) => {
+    const rect = {
+      id: n.id,
+      position: n.position,
+      width: n.width ?? n.measured?.width ?? DEFAULT_EDITOR_WIDTH,
+      height: n.height ?? n.measured?.height ?? DEFAULT_EDITOR_HEIGHT,
+    };
+    const parent = n.parentId !== undefined ? { parent: n.parentId } : {};
+    switch (n.type) {
+      case 'editor':
+        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor };
+      case 'file':
+        return { ...rect, ...parent, type: 'file', file: n.data.file };
+      case 'group':
+        return { ...rect, ...parent, type: 'group', title: n.data.title, color: n.data.color };
+      case 'shape':
+        return { ...rect, ...parent, type: 'shape', ...n.data };
+      case 'media':
+        return { ...rect, ...parent, type: 'media', src: n.data.src };
+      default:
+        return { ...rect, ...parent, type: n.type, text: n.data.text, color: n.data.color, textColor: n.data.textColor, fontSize: n.data.fontSize, fontWeight: n.data.fontWeight };
+    }
+  });
+  return { version: WORKSPACE_VERSION, nodes: out, edges };
+}
+
+/** Keep the docStore's range trackers in sync with the editors that have a target. */
+function syncTrackers(nodes: RFNode[], previous: RFNode[]) {
+  const ids = new Set(nodes.filter(isEditor).filter((n) => n.data.target).map((n) => n.id));
+  for (const n of previous) if (isEditor(n) && !ids.has(n.id)) docStore.untrack(n.id);
+  for (const n of nodes) {
+    if (isFile(n)) docStore.ensure(n.data.file);
+    else if (isEditor(n) && n.data.target) docStore.track(n.id, n.data.file, n.data.target, n.data.anchor);
+  }
+}
+
+/** Removing a node removes what is inside it; removing a file's last editor removes the file. */
+function pruneNodes(ns: RFNode[]): RFNode[] {
+  for (;;) {
+    const ids = new Set(ns.map((n) => n.id));
+    const next = ns.filter((n) => n.parentId === undefined || ids.has(n.parentId));
+    if (next.length === ns.length) break;
+    ns = next;
+  }
+  const filesWithEditors = new Set(ns.filter(isEditor).map((n) => n.parentId));
+  return ns.filter((n) => !isFile(n) || filesWithEditors.has(n.id));
+}
+
+/** The boxes a selection stands for: an editor stands for its file; nodes inside another selected node are dropped. */
+function selectionRoots(ns: RFNode[]): RFNode[] {
+  const byId = new Map(ns.map((n) => [n.id, n]));
+  const ids = new Set<string>();
+  for (const n of ns) if (n.selected) ids.add(isEditor(n) ? n.parentId! : n.id);
+  return ns.filter((n) => ids.has(n.id) && ![...ids].some((other) => other !== n.id && isWithin(ns, n.id, other)) && byId.has(n.id));
+}
+
+/** Natural size of an image or video, for sizing a new media node (falls back to a default after a while). */
+function loadMediaSize(url: string, video: boolean): Promise<{ width: number; height: number }> {
+  return new Promise((resolve) => {
+    const fallback = setTimeout(() => resolve({ width: 0, height: 0 }), 4000);
+    const done = (width: number, height: number) => {
+      clearTimeout(fallback);
+      resolve({ width, height });
+    };
+    if (video) {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.onloadedmetadata = () => done(v.videoWidth, v.videoHeight);
+      v.onerror = () => done(0, 0);
+      v.src = url;
+    } else {
+      const img = new Image();
+      img.onload = () => done(img.naturalWidth, img.naturalHeight);
+      img.onerror = () => done(0, 0);
+      img.src = url;
+    }
+  });
+}
+
+function readAsBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+const MEDIA_MIME = /^(image|video)\//;
+const EXT_BY_MIME: Record<string, string> = { 'image/jpeg': 'jpg', 'image/svg+xml': 'svg', 'video/quicktime': 'mov' };
+
+function mediaFileName(file: Blob & { name?: string }) {
+  if (file.name && file.name !== 'image.png') return file.name;
+  const ext = EXT_BY_MIME[file.type] ?? file.type.split('/')[1]?.replace(/[^\w]/g, '') ?? 'png';
+  const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+  return `pasted-${stamp}.${ext}`;
+}
+
+/** The node that represents `id` on screen: an embedded (hidden) editor is shown by its file node. */
+function visibleNodeId(nodes: RFNode[], id: string) {
+  const n = nodes.find((x) => x.id === id);
+  return n?.hidden && n.parentId ? n.parentId : id;
+}
+
+function isEditableTarget(t: EventTarget | null) {
+  const el = t as HTMLElement | null;
+  return !!el?.closest?.('input, textarea, [contenteditable="true"], .monaco-editor');
+}
+
+export function App() {
+  const rf = useReactFlow<RFNode>();
+  const [nodes, setNodes, onNodesChangeBase] = useNodesState<RFNode>([]);
+  const [settings, setSettings] = useState<EditorSettings | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string>();
+  const [tool, setTool] = useState<Tool>('select');
+  const [help, setHelp] = useState(false);
+  const [config, setConfig] = useState<CanvasConfig>({
+    minNodeWidth: DEFAULT_MIN_NODE_SIZE,
+    minNodeHeight: DEFAULT_MIN_NODE_SIZE,
+    focusPercent: DEFAULT_FOCUS_PERCENT,
+    canvasBackground: DEFAULT_CANVAS_BACKGROUND,
+  });
+  /** Side panel beside the toolbar (one at a time). */
+  const [panel, setPanel] = useState<'config' | 'shapes' | null>(null);
+  const togglePanel = useCallback((p: 'config' | 'shapes') => setPanel((o) => (o === p ? null : p)), []);
+  /** Config edits not yet sent to the host (see changeConfig). */
+  const pendingConfig = useRef<{ patch: Partial<CanvasConfig>; timer: number } | null>(null);
+  const [nodeMenu, setNodeMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [, setThemeTick] = useState(0);
+
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const edgesRef = useRef<WorkspaceEdge[]>([]);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const readOnlyRef = useRef(false);
+  const mediaRootRef = useRef('');
+  const commitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const pendingReveal = useRef<string | null>(null);
+  const initialViewport = useMemo(() => host.getState<PersistedState>()?.viewport, []);
+  if (__HARNESS__) (window as any).__rf = rf;
+
+  // ---- persistence -------------------------------------------------------------------------------
+
+  const commit = useCallback(() => {
+    clearTimeout(commitTimer.current);
+    commitTimer.current = setTimeout(() => {
+      // Never overwrite a .workspace file we could not parse; the user may be fixing it by hand.
+      if (readOnlyRef.current) return;
+      host.postMessage({ type: 'update', workspace: toWorkspace(nodesRef.current, edgesRef.current) });
+    }, COMMIT_DELAY);
+  }, []);
+
+  /** Apply a node update and keep trackers in sync (all structural changes go through here). */
+  const updateNodes = useCallback(
+    (fn: (ns: RFNode[]) => RFNode[], persist = true) => {
+      setNodes((prev) => {
+        const next = arrange(fitGroups(normalizeLayout(fn(prev))));
+        syncTrackers(next, prev);
+        return next;
+      });
+      if (persist) commit();
+    },
+    [commit, setNodes],
+  );
+
+  const applyWorkspace = useCallback(
+    (workspace: WorkspaceFile, error?: string) => {
+      readOnlyRef.current = !!error;
+      setWorkspaceError(error);
+      edgesRef.current = workspace.edges;
+      updateNodes((prev) => toRFNodes(workspace, prev), false);
+    },
+    [updateNodes],
+  );
+
+  // ---- host messages -----------------------------------------------------------------------------
+
+  // Keep the latest closures in a ref so the host subscription (and 'ready') happens exactly once.
+  const hostHandler = useRef<(m: HostToWebview) => void>(() => {});
+  useEffect(() => {
+    hostHandler.current = (m: HostToWebview) => {
+      switch (m.type) {
+        case 'init':
+          mediaRootRef.current = m.mediaRoot ?? '';
+          setSettings(m.settings);
+          if (m.config) setConfig(m.config);
+          applyWorkspace(m.workspace, m.error);
+          if (!initialViewport && m.workspace.nodes.length) {
+            requestAnimationFrame(() => rf.fitView({ padding: 0.15, maxZoom: 1 }));
+          }
+          break;
+        case 'workspace':
+          applyWorkspace(m.workspace, m.error);
+          break;
+        case 'settings':
+          setSettings(m.settings);
+          break;
+        case 'config':
+          setConfig({ ...m.config, ...pendingConfig.current?.patch }); // unsent edits win over the echo
+          break;
+        case 'mediaAdded':
+          void addMedia(m.srcs, m.position);
+          break;
+        case 'restoreFocus':
+          // Only give the caret back if it was in an editor; selecting a node alone must not focus code.
+          if (refocusEditor.current) focusLastEditor();
+          break;
+        case 'revealNode':
+          pendingReveal.current = m.id;
+          requestScrollToTarget(m.id);
+          setNodes((ns) => [...ns]); // re-run the reveal effect even if nothing else changes
+          break;
+        default:
+          if (!handleLanguageMessage(m)) docStore.handleHost(m);
+      }
+    };
+  });
+
+  useEffect(() => {
+    docStore.onRangesChanged = (updates) => {
+      const byId = new Map(updates.map((u) => [u.id, u]));
+      setNodes((ns) =>
+        ns.map((n) => {
+          const u = byId.get(n.id);
+          return u && isEditor(n) ? { ...n, data: { ...n.data, target: u.range, anchor: u.anchor } } : n;
+        }),
+      );
+      commit();
+    };
+    registerLanguageBridge();
+    const off = onHostMessage((m) => hostHandler.current(m));
+    host.postMessage({ type: 'ready' });
+    return off;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reveal a node once it exists and has been measured.
+  useEffect(() => {
+    const id = pendingReveal.current;
+    if (!id) return;
+    const node = nodes.find((n) => n.id === id);
+    if (!node?.measured) return;
+    pendingReveal.current = null;
+    const shown = visibleNodeId(nodes, id);
+    setNodes((ns) => ns.map((n) => (n.selected === (n.id === shown) ? n : { ...n, selected: n.id === shown })));
+    rf.fitView({ nodes: [{ id: shown }], padding: 0.3, maxZoom: Math.max(rf.getZoom(), 0.8), duration: 300 });
+  }, [nodes, rf, setNodes]);
+
+  useEffect(() => watchHostTheme(() => setThemeTick((t) => t + 1)), []);
+
+  // The canvas background is a user setting; dots and floating text switch tone so they stay readable on it.
+  useEffect(() => {
+    const light = isLightColor(config.canvasBackground);
+    const root = document.documentElement.style;
+    root.setProperty('--pw-canvas-bg', config.canvasBackground);
+    root.setProperty('--pw-dot', light ? 'rgba(0, 0, 0, 0.28)' : 'rgba(255, 255, 255, 0.22)');
+    root.setProperty('--pw-canvas-fg', light ? '#1f2328' : '#f0f0f0');
+  }, [config.canvasBackground]);
+
+  // ---- keyboard ----------------------------------------------------------------------------------
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
+        // Capture before VS Code's webview handler so one save covers the layout and every file shown.
+        e.preventDefault();
+        e.stopPropagation();
+        host.postMessage({ type: 'save' });
+        return;
+      }
+      if (isEditableTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'h' || e.key === 'H') setTool('hand');
+      else if (e.key === 'v' || e.key === 'V') setTool('select');
+      else if (e.key === '!' || (e.shiftKey && e.code === 'Digit1')) rf.fitView({ padding: 0.15, duration: 250, maxZoom: 1 });
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [rf]);
+
+  // ---- node changes ------------------------------------------------------------------------------
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<RFNode>[]) => {
+      let persist = false;
+      let removed = false;
+      const dropped = new Set<string>();
+      for (const c of changes) {
+        if (c.type === 'position' && c.dragging === false) {
+          persist = true;
+          dropped.add(c.id);
+        }
+        if (c.type === 'dimensions' && c.resizing === false) persist = true;
+        if (c.type === 'remove') removed = true;
+      }
+      if (removed) {
+        for (const c of changes) if (c.type === 'remove') docStore.untrack(c.id);
+        onNodesChangeBase(changes);
+        updateNodes(pruneNodes);
+        return;
+      }
+      onNodesChangeBase(changes);
+      // Dropped boxes join the group under them (or leave theirs) before groups are re-fit; editors stay in their file.
+      // Re-fit embedded editors: resizing a combined node from the top/left also shifts its hidden child.
+      if (persist) updateNodes((ns) => dropNodes(ns, new Set(ns.filter((n) => dropped.has(n.id) && isBox(n)).map((n) => n.id))));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [commit, onNodesChangeBase, updateNodes],
+  );
+
+  // Mirror VS Code's explorer.autoReveal: the focused node's file gets selected in the Explorer.
+  // Selection-change events repeat for the same node, so only report changes (focus always reports).
+  const lastFocused = useRef<string | null>(null);
+  /** Whether the Explorer reveal interrupted typing in an editor, so `restoreFocus` should put the caret back. */
+  const refocusEditor = useRef(false);
+  const revealInExplorer = useCallback((id: string, force = false) => {
+    if (!force && lastFocused.current === id) return;
+    lastFocused.current = id;
+    refocusEditor.current = editorHasFocus();
+    const node = nodesRef.current.find((n) => n.id === id);
+    if (node && (isFile(node) || isEditor(node))) host.postMessage({ type: 'nodeFocused', file: node.data.file });
+  }, []);
+
+  const actions = useMemo<WorkspaceActions | null>(() => {
+    if (!settings) return null;
+    return {
+      settings,
+      config,
+      focusEditor: (id) => {
+        // Clicking into code (a nodrag area) doesn't select the node by itself; make it the selection.
+        const shown = visibleNodeId(nodesRef.current, id);
+        setNodes((ns) => ns.map((n) => (n.selected === (n.id === shown) ? n : { ...n, selected: n.id === shown })));
+        revealInExplorer(id, true);
+      },
+      setTarget: (id: string, target: LineRange | undefined) => {
+        const model = (() => {
+          const node = nodesRef.current.find((n) => n.id === id);
+          return node && isEditor(node) ? docStore.get(node.data.file)?.model : undefined;
+        })();
+        const anchor = target && model ? model.getLineContent(target.start).trim() : undefined;
+        updateNodes((ns) => ns.map((n) => (n.id === id && isEditor(n) ? { ...n, data: { ...n.data, target, anchor } } : n)));
+      },
+      addEditor: (fileNodeId: string) => {
+        const lineHeight = settingsRef.current?.lineHeight ?? 19;
+        updateNodes((ns) => {
+          const file = ns.find((n) => n.id === fileNodeId);
+          if (!file || !isFile(file)) return ns;
+          const children = ns.filter((n): n is RFEditorNode => isEditor(n) && n.parentId === fileNodeId);
+          // Seed the new snippet with the selection of the file's focused editor, if any.
+          const focused = lastFocusedEditorId();
+          const target = focused && children.some((c) => c.id === focused) ? selectedLines(focused) : undefined;
+          const asWorkspace = children.map<WorkspaceEditorNode>((c) => ({
+            id: c.id,
+            type: 'editor',
+            parent: fileNodeId,
+            position: c.position,
+            width: c.width ?? DEFAULT_EDITOR_WIDTH,
+            height: c.height ?? DEFAULT_EDITOR_HEIGHT,
+          }));
+          const width = asWorkspace.length ? Math.max(...asWorkspace.map((e) => e.width)) : DEFAULT_EDITOR_WIDTH;
+          const height = editorHeightFor(target, lineHeight);
+          const editor: RFEditorNode = {
+            id: newId('e'),
+            type: 'editor',
+            parentId: fileNodeId,
+            expandParent: true,
+            position: nextEditorSlot(asWorkspace),
+            width,
+            height,
+            measured: { width, height },
+            dragHandle: '.pw-editor-header',
+            selected: true,
+            data: {
+              file: file.data.file,
+              target,
+              anchor: target ? docStore.get(file.data.file)?.model?.getLineContent(target.start).trim() : undefined,
+            },
+          };
+          pendingReveal.current = editor.id;
+          // normalizeLayout turns a combined node into a group (the embedded editor keeps its size) and grows the file.
+          return [...ns.map((n) => (n.selected ? { ...n, selected: false } : n)), editor];
+        });
+      },
+      remove: (id) => {
+        docStore.untrack(id);
+        updateNodes((ns) => pruneNodes(ns.filter((n) => n.id !== id)));
+      },
+      updateData: (id, patch) =>
+        updateNodes((ns) => ns.map((n) => (n.id === id && !isFile(n) && !isEditor(n) ? ({ ...n, data: { ...n.data, ...patch } } as RFNode) : n))),
+      setHeight: (id, height) =>
+        updateNodes((ns) => {
+          const n = ns.find((x) => x.id === id);
+          if (!n || n.height === height) return ns;
+          return ns.map((x) => (x === n ? { ...x, height, measured: { width: x.width ?? x.measured?.width, height } } : x));
+        }),
+      ungroup: (id) =>
+        updateNodes((ns) => {
+          const group = ns.find((n) => n.id === id);
+          if (!group || !isGroup(group)) return ns;
+          // The content stays where it is on screen and becomes the selection.
+          const kids = ns.filter((n) => n.parentId === id).map((n) => n.id);
+          let out = ns.map((n) => (kids.includes(n.id) !== !!n.selected ? { ...n, selected: kids.includes(n.id) } : n));
+          for (const kid of kids) out = reparent(out, kid, group.parentId);
+          return out.filter((n) => n.id !== id);
+        }),
+      mediaUrl: (src) => {
+        if (/^(data|blob|https?):/i.test(src)) return src;
+        if (isAbsoluteWorkspacePath(src) || !mediaRootRef.current) return '';
+        return `${mediaRootRef.current.replace(/\/$/, '')}/${src.split('/').map(encodeURIComponent).join('/')}`;
+      },
+      openNodeMenu: (id, x, y) => setNodeMenu({ id, x, y }),
+      // fitView's numeric padding shrinks the fitted size to 1 / (1 + padding), so 100 / percent - 1 fills `percent`.
+      focusNode: (id) =>
+        rf.fitView({ nodes: [{ id: visibleNodeId(nodesRef.current, id) }], padding: 100 / config.focusPercent - 1, duration: 300 }),
+      openInEditor: (file, line) => host.postMessage({ type: 'openInEditor', file, line }),
+      goToDefinition: (file, line, column) => host.postMessage({ type: 'goToDefinition', file, line, column }),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings, config, rf, setNodes, updateNodes, revealInExplorer]);
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+
+  const restackNode = useCallback(
+    (id: string, op: StackOp) => {
+      setNodeMenu(null);
+      updateNodes((ns) => restack(ns, stackGroup, id, op));
+    },
+    [updateNodes],
+  );
+  const closeNodeMenu = useCallback(() => setNodeMenu(null), []);
+
+  // ---- board nodes (groups, text, notes, media) ----------------------------------------------------
+
+  /** Last pointer position over the canvas (client coordinates), where pasted media goes. */
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+  const dropPoint = () => {
+    const p = pointer.current ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    return rf.screenToFlowPosition(p);
+  };
+  const viewCenter = () => rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+
+  /** Add a top-level node centered on `center`, selected (and alone in the selection). */
+  const addBox = useCallback(
+    (node: RFNode, center: { x: number; y: number }) => {
+      const { width, height } = sizeOf(node);
+      const placed = { ...node, position: { x: center.x - width / 2, y: center.y - height / 2 }, measured: { width, height }, selected: true } as RFNode;
+      updateNodes((ns) => [...ns.map((n) => (n.selected ? { ...n, selected: false } : n)), placed]);
+    },
+    [updateNodes],
+  );
+
+  /** Wrap the selection in a new group (in the selection's common group, if any), or add an empty group. */
+  const groupSelection = useCallback(() => {
+    const id = newId('g');
+    editWhenMounted(id);
+    const roots = selectionRoots(nodesRef.current);
+    if (!roots.length) {
+      addBox({ id, type: 'group', ...DEFAULT_GROUP_SIZE, position: { x: 0, y: 0 }, data: { title: '' }, ...boxProps('group') } as RFGroupNode, viewCenter());
+      return;
+    }
+    updateNodes((ns) => {
+      const boxes = roots.map((r) => ns.find((n) => n.id === r.id)!).filter(Boolean);
+      const parents = new Set(boxes.map((b) => b.parentId));
+      const parentId = parents.size === 1 ? boxes[0].parentId : undefined;
+      const rects = boxes.map((b) => ({ ...absolutePos(ns, b.id), ...sizeOf(b) }));
+      const minX = Math.min(...rects.map((r) => r.x));
+      const minY = Math.min(...rects.map((r) => r.y));
+      const maxX = Math.max(...rects.map((r) => r.x + r.width));
+      const maxY = Math.max(...rects.map((r) => r.y + r.height));
+      const base = parentId !== undefined ? absolutePos(ns, parentId) : { x: 0, y: 0 };
+      const width = maxX - minX + GROUP_PADDING * 2;
+      const height = maxY - minY + GROUP_HEADER_HEIGHT + GROUP_PADDING;
+      const group: RFGroupNode = {
+        id,
+        type: 'group',
+        ...(parentId !== undefined ? { parentId } : {}),
+        position: { x: minX - GROUP_PADDING - base.x, y: minY - GROUP_HEADER_HEIGHT - base.y },
+        width,
+        height,
+        measured: { width, height },
+        selected: true,
+        data: { title: '' },
+        ...boxProps('group'),
+      };
+      // The group takes the stacking slot of the lowest selected box; the boxes keep their relative order.
+      const first = Math.min(...boxes.map((b) => ns.indexOf(b)));
+      let out: RFNode[] = [...ns.slice(0, first), group, ...ns.slice(first)].map((n) => (n.selected && n.id !== id ? { ...n, selected: false } : n));
+      for (const b of boxes.sort((a, c) => ns.indexOf(a) - ns.indexOf(c))) out = reparent(out, b.id, id);
+      return out;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addBox, updateNodes]);
+
+  /** Add media nodes for stored media (workspace paths), side by side around `position`. */
+  const addMedia = useCallback(
+    async (srcs: string[], position: { x: number; y: number }) => {
+      const nodes = await Promise.all(
+        srcs.map(async (src) => {
+          const url = actionsRef.current?.mediaUrl(src) ?? '';
+          const video = isVideoPath(src) || src.startsWith('data:video/');
+          return { src, ...mediaSizeFor(url ? await loadMediaSize(url, video) : { width: 0, height: 0 }) };
+        }),
+      );
+      const total = nodes.reduce((w, n) => w + n.width, 0) + 24 * (nodes.length - 1);
+      let x = position.x - total / 2;
+      const created: RFNode[] = nodes.map((n) => {
+        const node: RFNode = {
+          id: newId('m'),
+          type: 'media',
+          position: { x, y: position.y - n.height / 2 },
+          width: n.width,
+          height: n.height,
+          measured: { width: n.width, height: n.height },
+          selected: true,
+          data: { src: n.src },
+        };
+        x += n.width + 24;
+        return node;
+      });
+      updateNodes((ns) => [...ns.map((n) => (n.selected ? { ...n, selected: false } : n)), ...created]);
+    },
+    [updateNodes],
+  );
+
+  const createNode = useCallback(
+    (kind: CreateKind) => {
+      if (kind === 'group') return groupSelection();
+      if (kind === 'media') return host.postMessage({ type: 'pickMedia', position: viewCenter() });
+      const id = newId(kind === 'text' ? 't' : 'n');
+      editWhenMounted(id);
+      const size = kind === 'text' ? DEFAULT_TEXT_SIZE : DEFAULT_NOTE_SIZE;
+      addBox({ id, type: kind, ...size, position: { x: 0, y: 0 }, data: { text: '' } } as RFNode, viewCenter());
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [addBox, groupSelection],
+  );
+
+  /**
+   * Add a shape from the shapes panel, centered on `at` (a drop) or on the view (a click; repeated clicks cascade
+   * instead of stacking exactly). Like a dropped node, a shape whose center lands on a group goes into it.
+   */
+  const addShape = useCallback(
+    (shape: string, at?: { x: number; y: number }) => {
+      if (readOnlyRef.current) return;
+      const def = shapeDef(shape);
+      const { width, height } = def.size;
+      const center = at ?? viewCenter();
+      const id = newId('s');
+      updateNodes((ns) => {
+        let position = { x: Math.round(center.x - width / 2), y: Math.round(center.y - height / 2) };
+        // Another shape centered (nearly) where this one would be.
+        const taken = (p: { x: number; y: number }) =>
+          ns.some((n) => {
+            if (n.type !== 'shape') return false;
+            const a = absolutePos(ns, n.id);
+            const s = sizeOf(n);
+            return Math.abs(a.x + s.width / 2 - (p.x + width / 2)) < 12 && Math.abs(a.y + s.height / 2 - (p.y + height / 2)) < 12;
+          });
+        for (let i = 0; !at && i < 50 && taken(position); i++) position = { x: position.x + 24, y: position.y + 24 };
+        const node: RFShapeNode = { id, type: 'shape', position, width, height, measured: { width, height }, selected: true, data: { shape: def.id, text: '' } };
+        return dropNodes([...ns.map((n) => (n.selected ? { ...n, selected: false } : n)), node], new Set([id]));
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [updateNodes],
+  );
+
+  // ---- copy & paste of board nodes (files and snippets are not copied: a file appears once per canvas) ----
+
+  /**
+   * Copied nodes (a `copyTrees` snapshot). `marker` is what we put on the system clipboard, so a paste only
+   * uses these nodes while nothing else has been copied since (unset if the clipboard was not writable).
+   */
+  const clip = useRef<{ nodes: RFNode[]; marker?: string; pastes: number; at?: { x: number; y: number } } | null>(null);
+  const copyable = (n: RFNode) => !isFile(n) && !isEditor(n);
+
+  /** Snapshot of the selected board nodes (or of `id`), with what is inside them; null if there are none. */
+  const snapshotSelection = (id?: string) => {
+    const ns = nodesRef.current;
+    const roots = (id ? ns.filter((n) => n.id === id) : selectionRoots(ns)).filter(copyable);
+    return roots.length ? copyTrees(ns, roots.map((r) => r.id), copyable) : null;
+  };
+
+  /** Add copies of a snapshot moved by `offset` as the new selection; a copy landing on a group goes into it. */
+  const insertCopies = useCallback(
+    (snapshot: RFNode[], offset: { x: number; y: number }) => {
+      const copies = cloneTrees(snapshot, offset, (n) => newId(n.id.split('_')[0] || 'n')).map((n) => ({ ...n, selected: n.parentId === undefined }));
+      const roots = new Set(copies.filter((n) => n.parentId === undefined).map((n) => n.id));
+      updateNodes((ns) => dropNodes([...ns.map((n) => (n.selected ? { ...n, selected: false } : n)), ...copies], roots));
+    },
+    [updateNodes],
+  );
+
+  /** Copy (or cut) the selected board nodes; false if there were none, so the key keeps its usual meaning. */
+  const copySelection = useCallback(
+    (cut: boolean) => {
+      const nodes = snapshotSelection();
+      if (!nodes) return false;
+      const entry: NonNullable<typeof clip.current> = { nodes, pastes: 0 };
+      clip.current = entry;
+      const marker = `paper-workspace-nodes:${newId('c')}`;
+      navigator.clipboard?.writeText(marker).then(
+        () => (entry.marker = marker),
+        () => {},
+      );
+      if (cut && !readOnlyRef.current) {
+        const ids = new Set(nodes.filter((n) => n.parentId === undefined).map((n) => n.id));
+        updateNodes((ns) => pruneNodes(ns.filter((n) => !ids.has(n.id))));
+      }
+      return true;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [updateNodes],
+  );
+
+  /**
+   * Paste the copied nodes centered on the pointer (or, without one, next to the originals). Pasting again at
+   * the same spot cascades instead of stacking exactly.
+   */
+  const pasteNodes = useCallback(() => {
+    const c = clip.current;
+    if (!c || readOnlyRef.current) return;
+    const roots = c.nodes.filter((n) => n.parentId === undefined);
+    const minX = Math.min(...roots.map((n) => n.position.x));
+    const minY = Math.min(...roots.map((n) => n.position.y));
+    const maxX = Math.max(...roots.map((n) => n.position.x + sizeOf(n).width));
+    const maxY = Math.max(...roots.map((n) => n.position.y + sizeOf(n).height));
+    const at = pointer.current ? dropPoint() : undefined;
+    const same = !!at && !!c.at && Math.abs(at.x - c.at.x) < 1 && Math.abs(at.y - c.at.y) < 1;
+    c.pastes = !at || same ? c.pastes + 1 : 0;
+    c.at = at;
+    const step = 24 * c.pastes;
+    const offset = at
+      ? { x: Math.round(at.x - (minX + maxX) / 2) + step, y: Math.round(at.y - (minY + maxY) / 2) + step }
+      : { x: step, y: step };
+    insertCopies(c.nodes, offset);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insertCopies]);
+
+  /** Duplicate the selection (or node `id`) next to itself; the clipboard is left alone. */
+  const duplicateSelection = useCallback(
+    (id?: string) => {
+      const nodes = snapshotSelection(id);
+      if (nodes && !readOnlyRef.current) insertCopies(nodes, { x: 24, y: 24 });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [insertCopies],
+  );
+
+  /** Send pasted or dropped image/video files to the host, which stores them and answers with `mediaAdded`. */
+  const saveMediaFiles = useCallback(async (files: File[], position: { x: number; y: number }) => {
+    for (const f of files) {
+      try {
+        host.postMessage({ type: 'saveMedia', name: mediaFileName(f), mime: f.type, data: await readAsBase64(f), position });
+      } catch (e) {
+        console.warn('[workspace-workspace] could not read media', e);
+      }
+    }
+  }, []);
+
+  // Paste images/videos from the clipboard onto the canvas (not while typing in an editor or a text node).
+  useEffect(() => {
+    let pasteSeen = false;
+    const onPaste = (e: ClipboardEvent) => {
+      pasteSeen = true;
+      if (isEditableTarget(e.target) || readOnlyRef.current) return;
+      const files = [...(e.clipboardData?.files ?? [])].filter((f) => MEDIA_MIME.test(f.type));
+      if (files.length) {
+        e.preventDefault();
+        void saveMediaFiles(files, dropPoint());
+      } else if (clip.current && (!clip.current.marker || e.clipboardData?.getData('text/plain') === clip.current.marker)) {
+        e.preventDefault();
+        pasteNodes();
+      }
+    };
+    // Some hosts never deliver a paste event to a webview without a focused text field; read the clipboard then.
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'v' || e.altKey || isEditableTarget(e.target)) return;
+      pasteSeen = false;
+      setTimeout(async () => {
+        if (pasteSeen || readOnlyRef.current) return;
+        if (!navigator.clipboard?.read) return pasteNodes();
+        try {
+          const files: File[] = [];
+          for (const item of await navigator.clipboard.read()) {
+            const type = item.types.find((t) => MEDIA_MIME.test(t));
+            if (type) files.push(new File([await item.getType(type)], '', { type }));
+          }
+          if (files.length) return void saveMediaFiles(files, dropPoint());
+          const marker = clip.current?.marker;
+          if (marker && (await navigator.clipboard.readText().catch(() => marker)) !== marker) return;
+          pasteNodes();
+        } catch {
+          pasteNodes(); // clipboard not readable here: copied nodes, if any
+        }
+      }, 200);
+    };
+    window.addEventListener('paste', onPaste);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('paste', onPaste);
+      window.removeEventListener('keydown', onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveMediaFiles, pasteNodes]);
+
+  // ---- dragging into and out of groups -------------------------------------------------------------
+
+  const [dropTarget, setDropTarget] = useState<string | undefined>();
+  /** Dragged boxes that move on their own (not carried by a dragged parent); editors stay in their file. */
+  const draggedRoots = (dragged: RFNode[]) => {
+    const ids = new Set(dragged.map((n) => n.id));
+    return dragged.filter((n) => isBox(n) && !(n.parentId !== undefined && ids.has(n.parentId)));
+  };
+  const onNodeDrag = useCallback((_: unknown, node: RFNode, dragged: RFNode[]) => {
+    const roots = draggedRoots(dragged);
+    const lead = roots.find((n) => n.id === node.id) ?? roots[0];
+    const target = lead ? dropTargetFor(nodesRef.current, lead.id, new Set(roots.map((n) => n.id))) : undefined;
+    setDropTarget((t) => (t === target ? t : target));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // The drop itself (reparenting) happens with the drag's final position change in onNodesChange.
+  const onNodeDragStop = useCallback(() => setDropTarget(undefined), []);
+  // T = text, N = note, S = shapes panel, Ctrl/Cmd+G = group the selection, Ctrl/Cmd+Shift+G = ungroup the selected groups,
+  // Ctrl/Cmd+C / X copy / cut the selected board nodes, Ctrl/Cmd+D duplicates them (Ctrl/Cmd+V is handled with media paste).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target) || e.altKey) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && !e.shiftKey && (key === 'c' || key === 'x')) {
+        if (copySelection(key === 'x')) e.preventDefault();
+        return;
+      }
+      if (readOnlyRef.current) return;
+      if (mod && !e.shiftKey && key === 'd') {
+        // Capture it before VS Code's webview handler runs its own Ctrl+D binding.
+        e.preventDefault();
+        e.stopPropagation();
+        duplicateSelection();
+      } else if (mod && key === 'g') {
+        e.preventDefault();
+        if (e.shiftKey) nodesRef.current.filter((n) => n.selected && isGroup(n)).forEach((g) => actionsRef.current?.ungroup(g.id));
+        else createNode('group');
+      } else if (!mod && !e.shiftKey && (key === 't' || key === 'n')) {
+        e.preventDefault();
+        createNode(key === 't' ? 'text' : 'note');
+      } else if (!mod && !e.shiftKey && key === 's') {
+        e.preventDefault();
+        togglePanel('shapes');
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [createNode, togglePanel, copySelection, duplicateSelection]);
+
+  const shownNodes = useMemo(
+    () =>
+      dropTarget ? nodes.map((n) => (n.id === dropTarget ? { ...n, className: `${n.className ?? ''} pw-drop-target` } : n)) : nodes,
+    [nodes, dropTarget],
+  );
+
+  // Optimistic; the host echoes the stored settings back. Batched, so dragging in a color picker doesn't write
+  // the settings file on every mouse move.
+  const changeConfig = useCallback((patch: Partial<CanvasConfig>) => {
+    setConfig((c) => ({ ...c, ...patch }));
+    const pending = pendingConfig.current;
+    if (pending) window.clearTimeout(pending.timer);
+    const merged = { ...pending?.patch, ...patch };
+    pendingConfig.current = {
+      patch: merged,
+      timer: window.setTimeout(() => {
+        pendingConfig.current = null;
+        host.postMessage({ type: 'setConfig', config: merged });
+      }, 200),
+    };
+  }, []);
+
+  // ---- viewport ----------------------------------------------------------------------------------
+
+  const reportViewport = useCallback(
+    (vp: Viewport) => {
+      host.setState<PersistedState>({ viewport: vp });
+      const center = rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+      host.postMessage({ type: 'viewport', center, zoom: vp.zoom });
+    },
+    [rf],
+  );
+
+  // ---- drag & drop from the Explorer (VS Code requires holding Shift) ------------------------------
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const uris = new Set<string>();
+    const add = (s: string) =>
+      s
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'))
+        .forEach((l) => uris.add(l));
+    add(e.dataTransfer.getData('application/vnd.code.uri-list'));
+    add(e.dataTransfer.getData('text/uri-list'));
+    try {
+      const resources = JSON.parse(e.dataTransfer.getData('resourceurls') || '[]') as string[];
+      resources.forEach((r) => uris.add(r));
+    } catch {
+      /* not a VS Code resource drag */
+    }
+    const position = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const shape = e.dataTransfer.getData(SHAPE_DRAG_TYPE);
+    if (shape) return addShape(shape, position);
+    if (!uris.size) {
+      // Files without a path (e.g. from another app): only media can be stored.
+      const files = [...e.dataTransfer.files].filter((f) => MEDIA_MIME.test(f.type) || isMediaPath(f.name));
+      if (files.length) void saveMediaFiles(files, position);
+      return;
+    }
+    host.postMessage({ type: 'dropUris', uris: [...uris], position });
+  };
+
+  if (!actions) return <div className="pw-boot">Loading Paper Workspace…</div>;
+
+  const hand = tool === 'hand';
+  return (
+    <WorkspaceContext.Provider value={actions}>
+      <div
+        className={`pw-canvas${hand ? ' tool-hand' : ''}`}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        onPointerMove={(e) => (pointer.current = { x: e.clientX, y: e.clientY })}
+        onPointerLeave={() => (pointer.current = null)}
+      >
+        <ReactFlow<RFNode>
+          nodes={shownNodes}
+          edges={[]}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onNodeDrag={onNodeDrag}
+          onNodeDragStop={onNodeDragStop}
+          defaultViewport={initialViewport}
+          onMoveEnd={(_, vp) => reportViewport(vp)}
+          onInit={(inst) => reportViewport(inst.getViewport())}
+          onSelectionChange={({ nodes: selected }) => {
+            if (selected.length === 1) revealInExplorer(selected[0].id);
+            else lastFocused.current = null;
+          }}
+          // Offscreen editors unmount (their Monaco instance is disposed) and restore their scroll on return.
+          onlyRenderVisibleElements
+          minZoom={ZOOM_LIMITS.min}
+          maxZoom={ZOOM_LIMITS.max}
+          panOnScroll
+          zoomOnScroll={false}
+          zoomOnPinch
+          panOnDrag={hand ? true : [1, 2]}
+          selectionOnDrag={!hand}
+          nodesDraggable={!hand}
+          elementsSelectable={!hand}
+          deleteKeyCode={['Delete', 'Backspace']}
+          multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
+          proOptions={{ hideAttribution: true }}
+          colorMode={document.body.classList.contains('vscode-light') ? 'light' : 'dark'}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} />
+          <MiniMap pannable zoomable position="bottom-right" nodeBorderRadius={8} />
+        </ReactFlow>
+        <Toolbar
+          tool={tool}
+          onTool={setTool}
+          onCreate={createNode}
+          onHelp={() => setHelp(true)}
+          shapesOpen={panel === 'shapes'}
+          onShapes={() => togglePanel('shapes')}
+          configOpen={panel === 'config'}
+          onConfig={() => togglePanel('config')}
+        />
+        {panel === 'config' && <ConfigPanel config={config} onChange={changeConfig} onClose={() => setPanel(null)} />}
+        {panel === 'shapes' && <ShapesPanel onAdd={(shape) => addShape(shape)} onClose={() => setPanel(null)} />}
+        {workspaceError && (
+          <div className="pw-banner">
+            This .workspace file could not be parsed, so the canvas is read-only until it is fixed: {workspaceError}
+          </div>
+        )}
+        {!nodes.length && !workspaceError && (
+          <div className="pw-empty">
+            <div className="pw-empty-title">This workspace is empty</div>
+            <div>
+              Select code in an editor and press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd>, right-click a file in the
+              Explorer → <em>Add to Paper Workspace</em>, or hold <kbd>Shift</kbd> and drag files here.
+            </div>
+            <div>
+              Add groups, text, notes, shapes and images from the toolbar, or paste an image with <kbd>Ctrl</kbd>+<kbd>V</kbd>.
+            </div>
+          </div>
+        )}
+        {nodeMenu && (
+          <NodeMenu
+            x={nodeMenu.x}
+            y={nodeMenu.y}
+            {...stackPosition(nodes, stackGroup, nodeMenu.id)}
+            onPick={(op) => restackNode(nodeMenu.id, op)}
+            onFocus={() => {
+              closeNodeMenu();
+              actions?.focusNode(nodeMenu.id);
+            }}
+            onDuplicate={
+              nodes.some((n) => n.id === nodeMenu.id && copyable(n))
+                ? () => {
+                    closeNodeMenu();
+                    duplicateSelection(nodeMenu.id);
+                  }
+                : undefined
+            }
+            onUngroup={
+              nodes.some((n) => n.id === nodeMenu.id && isGroup(n))
+                ? () => {
+                    closeNodeMenu();
+                    actions.ungroup(nodeMenu.id);
+                  }
+                : undefined
+            }
+            onRemove={() => {
+              closeNodeMenu();
+              actions.remove(nodeMenu.id);
+            }}
+            onClose={closeNodeMenu}
+          />
+        )}
+        {help && <HelpOverlay onClose={() => setHelp(false)} />}
+      </div>
+    </WorkspaceContext.Provider>
+  );
+}
+
+const MENU_ITEMS: { op: StackOp; label: string; icon: string }[] = [
+  { op: 'front', label: 'To front', icon: 'arrow-circle-up' },
+  { op: 'back', label: 'To back', icon: 'arrow-circle-down' },
+  { op: 'forward', label: 'In front', icon: 'arrow-up' },
+  { op: 'backward', label: 'Back', icon: 'arrow-down' },
+];
+
+/** Node menu (focus, stacking order), opened by right-clicking its header. */
+function NodeMenu(props: {
+  x: number;
+  y: number;
+  isFront: boolean;
+  isBack: boolean;
+  onPick(op: StackOp): void;
+  onFocus(): void;
+  onDuplicate?(): void;
+  onUngroup?(): void;
+  onRemove(): void;
+  onClose(): void;
+}) {
+  const { x, y, onClose } = props;
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: x, top: y });
+
+  // Keep the menu inside the window.
+  useLayoutEffect(() => {
+    const r = ref.current!.getBoundingClientRect();
+    setPos({
+      left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
+      top: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)),
+    });
+  }, [x, y]);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('mousedown', onDown, true);
+    window.addEventListener('wheel', onClose, true);
+    window.addEventListener('blur', onClose);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('mousedown', onDown, true);
+      window.removeEventListener('wheel', onClose, true);
+      window.removeEventListener('blur', onClose);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+
+  return (
+    <div ref={ref} className="pw-menu" role="menu" style={pos} onContextMenu={(e) => e.preventDefault()}>
+      <button className="pw-menu-item" role="menuitem" onClick={props.onFocus}>
+        <span className="codicon codicon-zoom-in" />
+        Focus on paper
+      </button>
+      <div className="pw-menu-separator" role="separator" />
+      {MENU_ITEMS.map(({ op, label, icon }) => (
+        <button
+          key={op}
+          className="pw-menu-item"
+          role="menuitem"
+          disabled={op === 'front' || op === 'forward' ? props.isFront : props.isBack}
+          onClick={() => props.onPick(op)}
+        >
+          <span className={`codicon codicon-${icon}`} />
+          {label}
+        </button>
+      ))}
+      <div className="pw-menu-separator" role="separator" />
+      {props.onDuplicate && (
+        <button className="pw-menu-item" role="menuitem" onClick={props.onDuplicate}>
+          <span className="codicon codicon-copy" />
+          Duplicate
+        </button>
+      )}
+      {props.onUngroup && (
+        <button className="pw-menu-item" role="menuitem" onClick={props.onUngroup}>
+          <span className="codicon codicon-ungroup-by-ref-type" />
+          Ungroup
+        </button>
+      )}
+      <button className="pw-menu-item" role="menuitem" onClick={props.onRemove}>
+        <span className="codicon codicon-trash" />
+        Delete
+      </button>
+    </div>
+  );
+}

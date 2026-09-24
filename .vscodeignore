@@ -1,0 +1,11 @@
+**
+!dist/extension.js
+!dist/webview.js
+!dist/webview.css
+!dist/editor.worker.js
+!dist/*.ttf
+!media/**
+!package.json
+!README.md
+!LICENSE
+!CHANGELOG.md

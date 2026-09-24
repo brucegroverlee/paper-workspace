@@ -1,0 +1,712 @@
+// The on-disk `.workspace` format, shared by the extension host and the webview.
+// Keep this module free of `vscode` and DOM imports so it can be unit tested.
+//
+// v2 model: a *file node* is a group (React Flow parent) for one source file. It contains one or more
+// *editor nodes*: scrollable Monaco editors over the whole file, each with an optional *target*: the
+// line range that editor is "about". Editors open scrolled to their target and can jump back to it.
+
+export const WORKSPACE_VERSION = 2;
+export const WORKSPACE_DIR = '.paperworkspace';
+export const WORKSPACE_EXT = '.workspace';
+
+/** 1-based, inclusive line range (matches what users see in the gutter). */
+export interface LineRange {
+  start: number;
+  end: number;
+}
+
+export interface XY {
+  x: number;
+  y: number;
+}
+
+export interface FileNode {
+  id: string;
+  type: 'file';
+  /** Id of the group node this file sits in (position is then relative to it). */
+  parent?: string;
+  /** Path relative to the workspace folder that owns the `.workspace` file (POSIX separators), or absolute if outside it. */
+  file: string;
+  position: XY;
+  width: number;
+  height: number;
+}
+
+export interface EditorNode {
+  id: string;
+  type: 'editor';
+  /** Id of the owning file node. */
+  parent: string;
+  /** The snippet this editor is about. Undefined = a plain view of the whole file. */
+  target?: LineRange;
+  /** Trimmed text of the target's first line; used to re-find it if the file changed while the canvas was closed. */
+  anchor?: string;
+  /** Relative to the parent file node. */
+  position: XY;
+  width: number;
+  height: number;
+}
+
+/** A titled, colored area; any other box (file, text, note, shape, media, group) can sit inside it. */
+export interface GroupNode {
+  id: string;
+  type: 'group';
+  parent?: string;
+  title: string;
+  /** Background color (`#rrggbb`); undefined = the theme's paper color. */
+  color?: string;
+  position: XY;
+  width: number;
+  height: number;
+}
+
+/** Free text without a background (`text`) or a sticky note (`note`). */
+export interface TextNode {
+  id: string;
+  type: 'text' | 'note';
+  parent?: string;
+  text: string;
+  /** Text color for `text`, background color for `note`. */
+  color?: string;
+  /** Text color of a `note`; undefined = dark or light, whichever reads best on its background. */
+  textColor?: string;
+  fontSize?: number;
+  /** CSS font weight (100–900); undefined = regular. */
+  fontWeight?: number;
+  position: XY;
+  width: number;
+  height: number;
+}
+
+/** An image or video file. */
+export interface MediaNode {
+  id: string;
+  type: 'media';
+  parent?: string;
+  /** Workspace path (like `file`), usually `.paperworkspace/media/<name>`. */
+  src: string;
+  position: XY;
+  width: number;
+  height: number;
+}
+
+/** A diagram shape (rectangle, ellipse, diamond, flowchart symbols…) with an optional centered label. */
+export interface ShapeNode {
+  id: string;
+  type: 'shape';
+  parent?: string;
+  /** Shape kind (see the webview's shape library); unknown kinds render as a rectangle. */
+  shape: string;
+  text: string;
+  /** Fill color; `'none'` = no fill (outline only); undefined = white. */
+  color?: string;
+  /** Outline color; undefined = dark grey. */
+  strokeColor?: string;
+  /** Label color; undefined = dark or light, whichever reads best on the fill. */
+  textColor?: string;
+  fontSize?: number;
+  fontWeight?: number;
+  position: XY;
+  width: number;
+  height: number;
+}
+
+/** Nodes that live on the canvas or inside a group (everything except editors, which live in file nodes). */
+export type BoxNode = FileNode | GroupNode | TextNode | MediaNode | ShapeNode;
+// Readers must ignore unknown kinds, so later kinds can be added without breaking older files.
+export type WorkspaceNode = BoxNode | EditorNode;
+
+export interface WorkspaceEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+export interface WorkspaceFile {
+  version: number;
+  nodes: WorkspaceNode[];
+  edges: WorkspaceEdge[];
+}
+
+// ---- layout constants (shared so host-side placement matches what the webview renders) --------------
+
+export const FILE_HEADER_HEIGHT = 40;
+export const FILE_PADDING = 12;
+export const EDITOR_GAP = 16;
+export const EDITOR_HEADER_HEIGHT = 30;
+export const DEFAULT_EDITOR_WIDTH = 640;
+export const DEFAULT_EDITOR_HEIGHT = 380;
+/** Default minimum node size; users can change it in the canvas config panel. */
+export const DEFAULT_MIN_NODE_SIZE = 50;
+/** Hard lower bound for any node dimension, whatever the file or the config says. */
+export const NODE_SIZE_FLOOR = 20;
+export const NODE_SIZE_CEILING = 2000;
+/** How much of the window "Focus on paper" makes a node fill, in percent; editable in the config panel. */
+export const DEFAULT_FOCUS_PERCENT = 80;
+export const FOCUS_PERCENT_FLOOR = 10;
+export const FOCUS_PERCENT_CEILING = 100;
+export const GROUP_HEADER_HEIGHT = 36;
+export const GROUP_PADDING = 16;
+export const DEFAULT_GROUP_SIZE = { width: 480, height: 320 };
+export const DEFAULT_TEXT_SIZE = { width: 240, height: 40 };
+export const DEFAULT_NOTE_SIZE = { width: 220, height: 220 };
+export const MEDIA_MAX_SIZE = 480;
+export const DEFAULT_NOTE_COLOR = '#ffec99';
+export const DEFAULT_SHAPE_SIZE = { width: 160, height: 80 };
+export const DEFAULT_SHAPE_FILL = '#ffffff';
+export const DEFAULT_SHAPE_STROKE = '#2b2f36';
+export const DEFAULT_SHAPE_FONT_SIZE = 14;
+/** Font sizes suggested in the text/note toolbar; any size in the allowed range can be typed. */
+export const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 80] as const;
+export const FONT_SIZE_FLOOR = 6;
+export const FONT_SIZE_CEILING = 200;
+/** Font weights offered in the text/note toolbar. */
+export const FONT_WEIGHTS = [
+  { value: 300, label: 'Light' },
+  { value: 400, label: 'Regular' },
+  { value: 500, label: 'Medium' },
+  { value: 600, label: 'Semibold' },
+  { value: 700, label: 'Bold' },
+  { value: 800, label: 'Extra bold' },
+] as const;
+export const DEFAULT_FONT_WEIGHT = 400;
+/** Default canvas background (editable in the config panel). */
+export const DEFAULT_CANVAS_BACKGROUND = '#e4e5e8';
+export const DEFAULT_TEXT_FONT_SIZE = 18;
+export const DEFAULT_NOTE_FONT_SIZE = 14;
+/** Swatches of the color picker: a muted dark row and a light pastel row. */
+export const PALETTE = {
+  dark: ['#2b2f36', '#3d4450', '#6b2f2f', '#6e4428', '#6b5a24', '#2d5236', '#27405f', '#46315f'],
+  light: ['#ffffff', '#e5e5e5', '#ffc9c9', '#ffd6a5', '#ffec99', '#b2f2bb', '#c5e3ff', '#e5dbff'],
+};
+const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
+const VIDEO_EXTS = ['mp4', 'webm', 'ogg', 'mov'];
+export const MEDIA_EXTS = [...IMAGE_EXTS, ...VIDEO_EXTS];
+const MIN_INITIAL_EDITOR_HEIGHT = 150;
+const MAX_INITIAL_EDITOR_HEIGHT = 560;
+
+export function emptyWorkspace(): WorkspaceFile {
+  return { version: WORKSPACE_VERSION, nodes: [], edges: [] };
+}
+
+export const isFileNode = (n: WorkspaceNode): n is FileNode => n.type === 'file';
+export const isEditorNode = (n: WorkspaceNode): n is EditorNode => n.type === 'editor';
+export const isGroupNode = (n: WorkspaceNode): n is GroupNode => n.type === 'group';
+export const isBoxNode = (n: WorkspaceNode): n is BoxNode => n.type !== 'editor';
+
+function extOf(p: string) {
+  return p.split(/[?#]/)[0].split('.').pop()?.toLowerCase() ?? '';
+}
+export const isMediaPath = (p: string) => MEDIA_EXTS.includes(extOf(p));
+export const isVideoPath = (p: string) => VIDEO_EXTS.includes(extOf(p));
+
+/** Whether a `#rrggbb` color is light (needs dark text on top of it). */
+export function isLightColor(color: string): boolean {
+  const m = /^#([0-9a-f]{6})$/i.exec(color);
+  if (!m) return false;
+  const v = parseInt(m[1], 16);
+  const [r, g, b] = [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150;
+}
+
+/** Scale natural media dimensions down to fit `MEDIA_MAX_SIZE`. */
+export function mediaSizeFor(natural: { width: number; height: number }) {
+  const w = natural.width > 0 ? natural.width : MEDIA_MAX_SIZE;
+  const h = natural.height > 0 ? natural.height : (MEDIA_MAX_SIZE * 3) / 4;
+  const k = Math.min(1, MEDIA_MAX_SIZE / Math.max(w, h));
+  return { width: Math.max(NODE_SIZE_FLOOR, Math.round(w * k)), height: Math.max(NODE_SIZE_FLOOR, Math.round(h * k)) };
+}
+
+/**
+ * Stable reorder so every parent comes before its children (React Flow requirement): nodes are ordered by
+ * depth, keeping array (= stacking) order within a depth.
+ */
+export function parentsFirst<T extends { id: string }>(items: T[], parentOf: (t: T) => string | undefined): T[] {
+  const byId = new Map(items.map((t) => [t.id, t]));
+  const depth = new Map<string, number>();
+  const depthOf = (t: T, hops = 0): number => {
+    const known = depth.get(t.id);
+    if (known !== undefined) return known;
+    const p = parentOf(t);
+    const parent = p !== undefined ? byId.get(p) : undefined;
+    const d = parent && hops < items.length ? depthOf(parent, hops + 1) + 1 : 0;
+    depth.set(t.id, d);
+    return d;
+  };
+  return items
+    .map((t, i) => ({ t, i, d: depthOf(t) }))
+    .sort((a, b) => a.d - b.d || a.i - b.i)
+    .map((x) => x.t);
+}
+
+/** Canvas position of a node (positions of nodes inside groups/files are relative to their parent). */
+export function absolutePosition(workspace: WorkspaceFile, id: string): XY {
+  const byId = new Map(workspace.nodes.map((n) => [n.id, n]));
+  let n = byId.get(id);
+  let x = 0;
+  let y = 0;
+  for (let i = 0; n && i <= workspace.nodes.length; i++) {
+    x += n.position.x;
+    y += n.position.y;
+    n = n.parent !== undefined ? byId.get(n.parent) : undefined;
+  }
+  return { x, y };
+}
+
+export function editorsOf(workspace: WorkspaceFile, fileNodeId: string): EditorNode[] {
+  return workspace.nodes.filter((n): n is EditorNode => isEditorNode(n) && n.parent === fileNodeId);
+}
+
+/** Initial editor height: fits the target (plus a little context), otherwise a comfortable default. */
+export function editorHeightFor(target: LineRange | undefined, lineHeight: number): number {
+  if (!target) return DEFAULT_EDITOR_HEIGHT;
+  const lines = target.end - target.start + 1;
+  const h = EDITOR_HEADER_HEIGHT + (lines + 2) * lineHeight + 8;
+  return Math.round(Math.min(MAX_INITIAL_EDITOR_HEIGHT, Math.max(MIN_INITIAL_EDITOR_HEIGHT, h)));
+}
+
+// A file with a single editor renders as ONE combined node (file header + editor filling the rest).
+// Only files with several editors become groups with padded, individually movable editors inside.
+
+/** Single-editor file: the editor fills the file below its header (the file size is authoritative). */
+export function fitSingleEditor(file: { width: number; height: number }, editor: EditorNode) {
+  editor.position = { x: 0, y: FILE_HEADER_HEIGHT };
+  editor.width = file.width;
+  editor.height = Math.max(NODE_SIZE_FLOOR, file.height - FILE_HEADER_HEIGHT);
+}
+
+/** Size of a single-editor file that shows `editor` at its current size. */
+export function singleFileSize(editor: { width: number; height: number }) {
+  return { width: editor.width, height: FILE_HEADER_HEIGHT + editor.height };
+}
+
+/** Before a second editor is added: the existing editor keeps its size and moves into a padded group. */
+export function expandToGroup(file: { width: number; height: number }, editor: EditorNode) {
+  editor.position = { x: FILE_PADDING, y: FILE_HEADER_HEIGHT };
+  file.width = editor.width + FILE_PADDING * 2;
+  file.height = FILE_HEADER_HEIGHT + editor.height + FILE_PADDING;
+}
+
+/** Smallest file-node size that contains all its editors (group layout). */
+export function fileSizeFor(editors: { position: XY; width: number; height: number }[]) {
+  let width = DEFAULT_EDITOR_WIDTH + FILE_PADDING * 2;
+  let height = FILE_HEADER_HEIGHT + FILE_PADDING;
+  for (const e of editors) {
+    width = Math.max(width, e.position.x + e.width + FILE_PADDING);
+    height = Math.max(height, e.position.y + e.height + FILE_PADDING);
+  }
+  return { width, height };
+}
+
+/** A typed font size, rounded and clamped to the allowed range; undefined when not a number. */
+export function clampFontSize(v: unknown): number | undefined {
+  if (typeof v === 'string' && !v.trim()) return undefined;
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.min(FONT_SIZE_CEILING, Math.max(FONT_SIZE_FLOOR, n)) : undefined;
+}
+
+/** A `#rrggbb` config color (lowercase), or the default canvas background when invalid. */
+export function canvasBackgroundOf(v: unknown): string {
+  return color(v) ?? DEFAULT_CANVAS_BACKGROUND;
+}
+
+/** A config size value clamped to the allowed range (falls back to the default when not a number). */
+export function clampNodeSize(v: unknown): number {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return DEFAULT_MIN_NODE_SIZE;
+  return Math.min(NODE_SIZE_CEILING, Math.max(NODE_SIZE_FLOOR, n));
+}
+
+/** A focus fill percentage clamped to the allowed range (falls back to the default when not a number). */
+export function clampFocusPercent(v: unknown): number {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return DEFAULT_FOCUS_PERCENT;
+  return Math.min(FOCUS_PERCENT_CEILING, Math.max(FOCUS_PERCENT_FLOOR, n));
+}
+
+// ---- parse / serialize ---------------------------------------------------------------------------
+
+/** Parse leniently: an empty or broken file yields an empty workspace plus an error message instead of throwing. */
+export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?: string } {
+  if (!text.trim()) return { workspace: emptyWorkspace() };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return { workspace: emptyWorkspace(), error: `Invalid JSON: ${(e as Error).message}` };
+  }
+  if (!raw || typeof raw !== 'object') return { workspace: emptyWorkspace(), error: 'Workspace file must be a JSON object' };
+  const obj = raw as Record<string, unknown>;
+  const rawNodes = Array.isArray(obj.nodes) ? obj.nodes : [];
+
+  const files: FileNode[] = [];
+  const editors: EditorNode[] = [];
+  const boxes: BoxNode[] = []; // every non-editor node, in file (= stacking) order
+  for (const r of rawNodes) {
+    if (!r || typeof r !== 'object') continue;
+    const n = r as Record<string, any>;
+    if (typeof n.id !== 'string') continue;
+    const box = { id: n.id, parent: typeof n.parent === 'string' ? n.parent : undefined, position: xy(n.position) };
+    const size = (d: { width: number; height: number }) => ({
+      width: Math.max(NODE_SIZE_FLOOR, num(n.width, d.width)),
+      height: Math.max(NODE_SIZE_FLOOR, num(n.height, d.height)),
+    });
+    if (n.type === 'file' && typeof n.file === 'string') {
+      const f: FileNode = { ...box, type: 'file', file: n.file, width: num(n.width, 0), height: num(n.height, 0) };
+      files.push(f);
+      boxes.push(f);
+    } else if (n.type === 'group') {
+      boxes.push({ ...box, type: 'group', title: typeof n.title === 'string' ? n.title : '', color: color(n.color), ...size(DEFAULT_GROUP_SIZE) });
+    } else if (n.type === 'text' || n.type === 'note') {
+      const fontSize = Math.round(Number(n.fontSize));
+      const fontWeight = Math.round(Number(n.fontWeight) / 100) * 100;
+      boxes.push({
+        ...box,
+        type: n.type,
+        text: typeof n.text === 'string' ? n.text : '',
+        color: color(n.color),
+        textColor: n.type === 'note' ? color(n.textColor) : undefined,
+        fontSize: fontSize > 0 ? fontSize : undefined,
+        fontWeight: fontWeight >= 100 && fontWeight <= 900 ? fontWeight : undefined,
+        ...size(n.type === 'text' ? DEFAULT_TEXT_SIZE : DEFAULT_NOTE_SIZE),
+      });
+    } else if (n.type === 'shape') {
+      const fontSize = Math.round(Number(n.fontSize));
+      const fontWeight = Math.round(Number(n.fontWeight) / 100) * 100;
+      boxes.push({
+        ...box,
+        type: 'shape',
+        shape: typeof n.shape === 'string' && /^[a-z][a-z0-9-]*$/.test(n.shape) ? n.shape : 'rectangle',
+        text: typeof n.text === 'string' ? n.text : '',
+        color: n.color === 'none' ? 'none' : color(n.color),
+        strokeColor: color(n.strokeColor),
+        textColor: color(n.textColor),
+        fontSize: fontSize > 0 ? fontSize : undefined,
+        fontWeight: fontWeight >= 100 && fontWeight <= 900 ? fontWeight : undefined,
+        ...size(DEFAULT_SHAPE_SIZE),
+      });
+    } else if (n.type === 'media' && typeof n.src === 'string') {
+      boxes.push({ ...box, type: 'media', src: n.src, ...size({ width: MEDIA_MAX_SIZE, height: MEDIA_MAX_SIZE }) });
+    } else if (n.type === 'editor' && typeof n.parent === 'string') {
+      editors.push({
+        id: n.id,
+        type: 'editor',
+        parent: n.parent,
+        target: range(n.target),
+        anchor: typeof n.anchor === 'string' ? n.anchor : undefined,
+        position: xy(n.position, { x: FILE_PADDING, y: FILE_HEADER_HEIGHT }),
+        width: Math.max(NODE_SIZE_FLOOR, num(n.width, DEFAULT_EDITOR_WIDTH)),
+        height: Math.max(NODE_SIZE_FLOOR, num(n.height, DEFAULT_EDITOR_HEIGHT)),
+      });
+    } else if (n.type === 'code' && typeof n.file === 'string') {
+      migrateV1CodeNode(n, files, editors);
+      boxes.push(files[files.length - 1]);
+    }
+  }
+  // A box can only sit in an existing group, without cycles; otherwise it goes back to the canvas.
+  const groups = new Map(boxes.filter((b) => b.type === 'group').map((g) => [g.id, g]));
+  for (const b of boxes) {
+    if (b.parent === undefined) continue;
+    const seen = new Set([b.id]);
+    let p: string | undefined = b.parent;
+    while (p !== undefined && groups.has(p) && !seen.has(p)) {
+      seen.add(p);
+      p = groups.get(p)!.parent;
+    }
+    if (p !== undefined) delete b.parent; // missing group or a cycle
+  }
+
+  const fileIds = new Set(files.map((f) => f.id));
+  const liveEditors = editors.filter((e) => fileIds.has(e.parent));
+  for (const f of files) {
+    const own = liveEditors.filter((e) => e.parent === f.id);
+    if (own.length === 1) {
+      // Combined node: missing sizes come from the editor (v1 migration), then the editor fills the file.
+      if (!f.width || !f.height) Object.assign(f, singleFileSize(own[0]));
+      f.width = Math.max(f.width, NODE_SIZE_FLOOR);
+      f.height = Math.max(f.height, NODE_SIZE_FLOOR);
+      fitSingleEditor(f, own[0]);
+    } else {
+      // A group must at least contain its editors (also fixes missing sizes).
+      const min = fileSizeFor(own);
+      f.width = Math.max(f.width, min.width);
+      f.height = Math.max(f.height, min.height);
+    }
+  }
+  const nodes = parentsFirst<WorkspaceNode>([...boxes, ...liveEditors], (n) => n.parent); // React Flow requirement
+  const ids = new Set(nodes.map((n) => n.id));
+  const edges = Array.isArray(obj.edges)
+    ? obj.edges.filter(
+        (e): e is WorkspaceEdge => !!e && typeof e.id === 'string' && ids.has(e.source) && ids.has(e.target),
+      )
+    : [];
+  return { workspace: { version: WORKSPACE_VERSION, nodes, edges } };
+}
+
+/** v1 stored one flat `code` node per range; it becomes a file node with a single targeted editor. */
+function migrateV1CodeNode(n: Record<string, any>, files: FileNode[], editors: EditorNode[]) {
+  const target = range(n.range) ?? { start: 1, end: 1 };
+  const width = Math.max(NODE_SIZE_FLOOR, num(n.width, DEFAULT_EDITOR_WIDTH));
+  const editor: EditorNode = {
+    id: n.id,
+    type: 'editor',
+    parent: `${n.id}_file`,
+    target,
+    anchor: typeof n.anchor === 'string' ? n.anchor : undefined,
+    position: { x: FILE_PADDING, y: FILE_HEADER_HEIGHT },
+    width,
+    height: editorHeightFor(target, 19),
+  };
+  editors.push(editor);
+  files.push({ id: editor.parent, type: 'file', file: n.file, position: xy(n.position), width: 0, height: 0 });
+}
+
+function num(v: unknown, fallback: number) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function xy(v: any, fallback: XY = { x: 0, y: 0 }): XY {
+  return { x: Number.isFinite(Number(v?.x)) ? Number(v.x) : fallback.x, y: Number.isFinite(Number(v?.y)) ? Number(v.y) : fallback.y };
+}
+
+function color(v: unknown): string | undefined {
+  return typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : undefined;
+}
+
+function range(v: any): LineRange | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const start = Math.max(1, Math.floor(Number(v.start) || 1));
+  const end = Math.max(start, Math.floor(Number(v.end) || start));
+  return { start, end };
+}
+
+/** Stable, diff-friendly serialization (rounded coordinates, fixed key order, parents first). */
+export function serializeWorkspace(workspace: WorkspaceFile): string {
+  const round = (p: XY) => ({ x: Math.round(p.x), y: Math.round(p.y) });
+  const rect = (n: WorkspaceNode) => ({ position: round(n.position), width: Math.round(n.width), height: Math.round(n.height) });
+  const head = (n: BoxNode) => ({ id: n.id, type: n.type, ...(n.parent !== undefined ? { parent: n.parent } : {}) });
+  const out = {
+    version: WORKSPACE_VERSION,
+    nodes: parentsFirst(workspace.nodes, (n) => n.parent).map((n) => {
+      switch (n.type) {
+        case 'file':
+          return { ...head(n), file: n.file, ...rect(n) };
+        case 'group':
+          return { ...head(n), title: n.title, ...(n.color ? { color: n.color } : {}), ...rect(n) };
+        case 'text':
+        case 'note':
+          return {
+            ...head(n),
+            text: n.text,
+            ...(n.color ? { color: n.color } : {}),
+            ...(n.textColor ? { textColor: n.textColor } : {}),
+            ...(n.fontSize ? { fontSize: n.fontSize } : {}),
+            ...(n.fontWeight ? { fontWeight: n.fontWeight } : {}),
+            ...rect(n),
+          };
+        case 'shape':
+          return {
+            ...head(n),
+            shape: n.shape,
+            text: n.text,
+            ...(n.color ? { color: n.color } : {}),
+            ...(n.strokeColor ? { strokeColor: n.strokeColor } : {}),
+            ...(n.textColor ? { textColor: n.textColor } : {}),
+            ...(n.fontSize ? { fontSize: n.fontSize } : {}),
+            ...(n.fontWeight ? { fontWeight: n.fontWeight } : {}),
+            ...rect(n),
+          };
+        case 'media':
+          return { ...head(n), src: n.src, ...rect(n) };
+        case 'editor':
+          return {
+            id: n.id,
+            type: n.type,
+            parent: n.parent,
+            ...(n.target ? { target: { start: n.target.start, end: n.target.end } } : {}),
+            ...(n.target && n.anchor !== undefined ? { anchor: n.anchor } : {}),
+            ...rect(n),
+          };
+      }
+    }),
+    edges: workspace.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+  };
+  return JSON.stringify(out, null, 2) + '\n';
+}
+
+// ---- stacking order ------------------------------------------------------------------------------
+// Array order is stacking order (later = on top). Boxes stack among the boxes of their group (or of the canvas),
+// editors among the editors of their file; `group` returns what an item stacks against (its parent id, or undefined for top-level).
+
+export type StackOp = 'front' | 'back' | 'forward' | 'backward';
+
+/** Move `id` within its stacking group. Returns the same array when nothing changes. */
+export function restack<T extends { id: string }>(items: T[], group: (t: T) => string | undefined, id: string, op: StackOp): T[] {
+  const item = items.find((t) => t.id === id);
+  if (!item) return items;
+  const g = group(item);
+  // Slots (array indexes) the group occupies; the group is reordered within those slots only.
+  const slots: number[] = [];
+  items.forEach((t, i) => group(t) === g && slots.push(i));
+  const peers = slots.map((i) => items[i]);
+  const from = peers.indexOf(item);
+  const to = op === 'front' ? peers.length - 1 : op === 'back' ? 0 : op === 'forward' ? Math.min(peers.length - 1, from + 1) : Math.max(0, from - 1);
+  if (to === from) return items;
+  peers.splice(from, 1);
+  peers.splice(to, 0, item);
+  const out = [...items];
+  slots.forEach((slot, k) => (out[slot] = peers[k]));
+  return out;
+}
+
+/** Position of `id` in its stacking group, for enabling menu items. */
+export function stackPosition<T extends { id: string }>(items: T[], group: (t: T) => string | undefined, id: string) {
+  const item = items.find((t) => t.id === id);
+  if (!item) return { isFront: true, isBack: true };
+  const peers = items.filter((t) => group(t) === group(item));
+  return { isFront: peers[peers.length - 1] === item, isBack: peers[0] === item };
+}
+
+export function newId(prefix = 'n'): string {
+  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// ---- ranges ----------------------------------------------------------------------------------------
+
+export function clampRange(range: LineRange, lineCount: number): LineRange {
+  const max = Math.max(1, lineCount);
+  const start = Math.min(Math.max(1, range.start), max);
+  const end = Math.min(Math.max(start, range.end), max);
+  return { start, end };
+}
+
+/**
+ * Re-locate a range whose anchor line no longer matches (file edited while the canvas was closed).
+ * Searches for the anchor text nearest to the old start and shifts the range, keeping its length.
+ */
+export function relocateRange(lines: string[], range: LineRange, anchor: string | undefined): LineRange {
+  const clamped = clampRange(range, lines.length);
+  if (!anchor) return clamped;
+  if ((lines[range.start - 1] ?? '').trim() === anchor) return clamped;
+  let best = -1;
+  let bestDist = Infinity;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() !== anchor) continue;
+    const dist = Math.abs(i + 1 - range.start);
+    if (dist < bestDist) {
+      best = i + 1;
+      bestDist = dist;
+    }
+  }
+  if (best < 0) return clamped;
+  const len = range.end - range.start;
+  return clampRange({ start: best, end: best + len }, lines.length);
+}
+
+// ---- placement ---------------------------------------------------------------------------------------
+
+/** Place a new node of the given size without overlapping existing ones, starting from `origin`. */
+export function findFreePosition(
+  existing: { position: XY; width: number; height: number }[],
+  origin: XY,
+  size: { width: number; height: number },
+  gap = 40,
+): XY {
+  const overlaps = (p: XY) =>
+    existing.some(
+      (e) =>
+        p.x < e.position.x + e.width + gap &&
+        p.x + size.width + gap > e.position.x &&
+        p.y < e.position.y + e.height + gap &&
+        p.y + size.height + gap > e.position.y,
+    );
+  let p = { ...origin };
+  for (let i = 0; i < 200 && overlaps(p); i++) p = { x: p.x + 48, y: p.y + 48 };
+  return p;
+}
+
+/** Where the next editor inside a file node goes: below the existing ones. */
+export function nextEditorSlot(editors: EditorNode[]): XY {
+  if (!editors.length) return { x: FILE_PADDING, y: FILE_HEADER_HEIGHT };
+  const bottom = Math.max(...editors.map((e) => e.position.y + e.height));
+  return { x: FILE_PADDING, y: bottom + EDITOR_GAP };
+}
+
+export interface AddSnippetResult {
+  workspace: WorkspaceFile;
+  /** The editor node to reveal (new or existing). */
+  editorId: string;
+  created: boolean;
+}
+
+/**
+ * Add a snippet for `file` to a workspace: into the existing file node for that file if there is one
+ * (reusing an editor whose target already covers the lines), otherwise as a new file node.
+ * Pure: returns a new workspace.
+ */
+export function addSnippet(
+  input: WorkspaceFile,
+  opts: {
+    file: string;
+    target?: LineRange;
+    anchor?: string;
+    lineHeight: number;
+    /** Canvas position for a new file node (top-left); collisions are avoided. */
+    origin: XY;
+    /** Explicit position (drops): used as-is. */
+    position?: XY;
+    id?: () => string;
+  },
+): AddSnippetResult {
+  const makeId = opts.id ?? newId;
+  const workspace: WorkspaceFile = { ...input, nodes: input.nodes.map((n) => ({ ...n })) };
+  const fileNode = workspace.nodes.find((n): n is FileNode => isFileNode(n) && n.file === opts.file);
+  const target = opts.target;
+
+  if (fileNode) {
+    const editors = editorsOf(workspace, fileNode.id);
+    const reuse = target
+      ? editors.find((e) => e.target && e.target.start <= target.start && e.target.end >= target.end)
+      : editors.find((e) => !e.target) ?? editors[0];
+    if (reuse) return { workspace, editorId: reuse.id, created: false };
+    if (editors.length === 1) expandToGroup(fileNode, editors[0]);
+    const editor: EditorNode = {
+      id: makeId('e'),
+      type: 'editor',
+      parent: fileNode.id,
+      target,
+      anchor: target ? opts.anchor : undefined,
+      position: nextEditorSlot(editors),
+      width: editors.length ? Math.max(...editors.map((e) => e.width)) : DEFAULT_EDITOR_WIDTH,
+      height: editorHeightFor(target, opts.lineHeight),
+    };
+    workspace.nodes.push(editor);
+    const size = fileSizeFor([...editors, editor]);
+    fileNode.width = Math.max(fileNode.width, size.width);
+    fileNode.height = Math.max(fileNode.height, size.height);
+    return { workspace, editorId: editor.id, created: true };
+  }
+
+  const editor: EditorNode = {
+    id: makeId('e'),
+    type: 'editor',
+    parent: makeId('f'),
+    target,
+    anchor: target ? opts.anchor : undefined,
+    position: { x: 0, y: FILE_HEADER_HEIGHT },
+    width: DEFAULT_EDITOR_WIDTH,
+    height: editorHeightFor(target, opts.lineHeight),
+  };
+  const size = singleFileSize(editor);
+  const occupied = workspace.nodes.filter((n) => isBoxNode(n) && n.parent === undefined);
+  const file: FileNode = {
+    id: editor.parent,
+    type: 'file',
+    file: opts.file,
+    position: opts.position ?? findFreePosition(occupied, opts.origin, size),
+    ...size,
+  };
+  workspace.nodes = parentsFirst([...workspace.nodes, file, editor], (n) => n.parent);
+  return { workspace, editorId: editor.id, created: true };
+}

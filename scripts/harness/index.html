@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="pw-worker" content="../editor.worker.js" />
+  <title>Paper Workspace harness</title>
+  <link rel="stylesheet" href="../webview.css" />
+  <style>
+    /* A subset of the variables VS Code injects into webviews (Dark Modern). */
+    body {
+      --vscode-font-family: 'Segoe WPC', 'Segoe UI', sans-serif;
+      --vscode-font-size: 13px;
+      --vscode-foreground: #cccccc;
+      --vscode-descriptionForeground: #9d9d9d;
+      --vscode-editor-background: #1f1f1f;
+      --vscode-editor-foreground: #cccccc;
+      --vscode-editorWidget-background: #202020;
+      --vscode-widget-border: #313131;
+      --vscode-editorGroup-emptyBackground: #181818;
+      --vscode-focusBorder: #0078d4;
+      --vscode-editorLineNumber-foreground: #6e7681;
+      --vscode-editorLineNumber-activeForeground: #cccccc;
+    }
+  </style>
+  <script src="./mockHost.js"></script>
+</head>
+<body class="vscode-dark">
+  <div id="root"></div>
+  <script type="module" src="../webview.js"></script>
+</body>
+</html>

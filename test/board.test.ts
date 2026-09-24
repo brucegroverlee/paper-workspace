@@ -1,0 +1,171 @@
+import { describe, expect, it } from 'vitest';
+import { GROUP_HEADER_HEIGHT, GROUP_PADDING, canvasBackgroundOf, clampFontSize, isLightColor, mediaSizeFor, parseWorkspace, serializeWorkspace } from '../src/shared/workspace';
+import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, reparent, type TreeNode } from '../src/webview/boardLayout';
+
+const ids = (ns: { id: string }[]) => ns.map((n) => n.id).join(',');
+
+describe('board nodes in the .workspace format', () => {
+  const raw = {
+    version: 2,
+    nodes: [
+      { id: 'e', type: 'editor', parent: 'f' },
+      { id: 'f', type: 'file', file: 'a.ts', parent: 'g2', position: { x: 10, y: 50 }, width: 300, height: 200 },
+      { id: 'g2', type: 'group', parent: 'g1', title: 'Inner', position: { x: 20, y: 40 }, width: 400, height: 300 },
+      { id: 'g1', type: 'group', title: 'Outer', color: '#FFEC99', position: { x: 0, y: 0 }, width: 600, height: 500 },
+      { id: 't', type: 'text', text: 'Hello', fontSize: 28, fontWeight: 700, textColor: '#123456', position: { x: 700, y: 0 } },
+      { id: 'n', type: 'note', text: 'Todo', color: 'red', textColor: '#AABBCC', fontWeight: 'x', position: { x: 700, y: 100 } },
+      { id: 'm', type: 'media', src: '.paperworkspace/media/a.png', parent: 'g1', position: { x: 30, y: 400 }, width: 120, height: 80 },
+      { id: 'bad', type: 'media', position: { x: 0, y: 0 } },
+    ],
+  };
+
+  it('parses groups, text, notes and media with parents first', () => {
+    const { workspace } = parseWorkspace(JSON.stringify(raw));
+    expect(ids(workspace.nodes)).toBe('g1,t,n,g2,m,f,e');
+    const g1 = workspace.nodes.find((n) => n.id === 'g1')!;
+    expect(g1).toMatchObject({ title: 'Outer', color: '#ffec99' });
+    expect(workspace.nodes.find((n) => n.id === 't')).toMatchObject({ text: 'Hello', fontSize: 28, fontWeight: 700, textColor: undefined, width: 240, height: 40 });
+    expect(workspace.nodes.find((n) => n.id === 'n')).toMatchObject({ text: 'Todo', color: undefined, textColor: '#aabbcc', fontWeight: undefined });
+    expect(workspace.nodes.find((n) => n.id === 'f')).toMatchObject({ parent: 'g2' });
+  });
+
+  it('round-trips', () => {
+    const once = serializeWorkspace(parseWorkspace(JSON.stringify(raw)).workspace);
+    expect(serializeWorkspace(parseWorkspace(once).workspace)).toBe(once);
+    expect(JSON.parse(once).nodes.find((n: any) => n.id === 't')).not.toHaveProperty('parent');
+  });
+
+  it('clamps typed font sizes and validates the canvas background', () => {
+    expect(clampFontSize('24')).toBe(24);
+    expect(clampFontSize('2')).toBe(6);
+    expect(clampFontSize(999)).toBe(200);
+    expect(clampFontSize('')).toBeUndefined();
+    expect(clampFontSize('abc')).toBeUndefined();
+    expect(canvasBackgroundOf('#ABCDEF')).toBe('#abcdef');
+    expect(canvasBackgroundOf('grey')).toBe('#e4e5e8');
+  });
+
+  it('drops parents that are missing, not groups, or cyclic', () => {
+    const { workspace } = parseWorkspace(
+      JSON.stringify({
+        nodes: [
+          { id: 'a', type: 'group', parent: 'b', title: '' },
+          { id: 'b', type: 'group', parent: 'a', title: '' },
+          { id: 't', type: 'text', parent: 'nope', text: '' },
+          { id: 'u', type: 'note', parent: 't', text: '' },
+        ],
+      }),
+    );
+    const parents = Object.fromEntries(workspace.nodes.map((n) => [n.id, n.parent]));
+    expect(parents).toEqual({ a: undefined, b: 'a', t: undefined, u: undefined });
+  });
+
+  it('picks readable text colors and scales media', () => {
+    expect(isLightColor('#ffec99')).toBe(true);
+    expect(isLightColor('#27405f')).toBe(false);
+    expect(mediaSizeFor({ width: 1920, height: 1080 })).toEqual({ width: 480, height: 270 });
+    expect(mediaSizeFor({ width: 100, height: 50 })).toEqual({ width: 100, height: 50 });
+  });
+});
+
+describe('group layout helpers', () => {
+  const tree = (): TreeNode[] => [
+    { id: 'g', type: 'group', position: { x: 100, y: 100 }, width: 300, height: 200 },
+    { id: 'a', type: 'note', parentId: 'g', position: { x: 20, y: 50 }, width: 50, height: 50 },
+    { id: 'b', type: 'note', position: { x: 500, y: 500 }, width: 50, height: 50 },
+  ];
+
+  it('computes canvas positions and reparents without moving on screen', () => {
+    let ns = tree();
+    expect(absolutePos(ns, 'a')).toEqual({ x: 120, y: 150 });
+    ns = reparent(ns, 'a', undefined);
+    expect(ns.find((n) => n.id === 'a')).toMatchObject({ position: { x: 120, y: 150 } });
+    expect(ns.find((n) => n.id === 'a')).not.toHaveProperty('parentId');
+    ns = reparent(ns, 'b', 'g');
+    expect(ns.find((n) => n.id === 'b')).toMatchObject({ parentId: 'g', position: { x: 400, y: 400 } });
+  });
+
+  it('finds the topmost group under the center of a dragged node, never itself or its content', () => {
+    const ns: TreeNode[] = [
+      ...tree(),
+      { id: 'inner', type: 'group', parentId: 'g', position: { x: 100, y: 40 }, width: 150, height: 150, zIndex: 5 },
+      { id: 'c', type: 'note', position: { x: 220, y: 160 }, width: 20, height: 20 },
+    ];
+    expect(dropTargetFor(ns, 'c', new Set(['c']))).toBe('inner');
+    expect(dropTargetFor(ns, 'b', new Set(['b']))).toBeUndefined();
+    expect(dropTargetFor(ns, 'inner', new Set(['inner']))).toBe('g');
+    expect(dropTargetFor(ns, 'g', new Set(['g']))).toBeUndefined();
+  });
+
+  it('drops a node dragged out of its group onto the canvas instead of growing the group', () => {
+    const ns = tree();
+    ns[1] = { ...ns[1], position: { x: 350, y: 50 } }; // center at canvas (475, 175): right of the group
+    const out = fitGroups(dropNodes(ns, new Set(['a'])));
+    expect(out.find((n) => n.id === 'a')).not.toHaveProperty('parentId');
+    expect(absolutePos(out, 'a')).toEqual({ x: 450, y: 150 });
+    expect(out.find((n) => n.id === 'g')).toMatchObject({ width: 300, height: 200 });
+    // Children carried by a dropped group stay in it.
+    expect(dropNodes(tree(), new Set(['g', 'a'])).find((n) => n.id === 'a')).toMatchObject({ parentId: 'g' });
+  });
+
+  it('grows a group around content sticking out, keeping the content in place on screen', () => {
+    const ns = tree();
+    ns[1] = { ...ns[1], position: { x: -30, y: 10 } };
+    ns.push({ id: 'c', type: 'note', parentId: 'g', position: { x: 280, y: 190 }, width: 50, height: 50 });
+    const out = fitGroups(ns);
+    const g = out.find((n) => n.id === 'g')!;
+    const dx = GROUP_PADDING + 30;
+    const dy = GROUP_HEADER_HEIGHT + GROUP_PADDING / 2 - 10;
+    expect(g.position).toEqual({ x: 100 - dx, y: 100 - dy });
+    expect(absolutePos(out, 'a')).toEqual({ x: 70, y: 110 });
+    expect(absolutePos(out, 'c')).toEqual(absolutePos(ns, 'c'));
+    expect(g.width).toBe(330 + GROUP_PADDING + dx);
+    expect(g.height).toBe(240 + GROUP_PADDING + dy);
+    expect(fitGroups(out)).toBe(out);
+  });
+
+  it('orders parents before children and stacks content above its group', () => {
+    const ns: TreeNode[] = [
+      { id: 'a', type: 'note', parentId: 'g', position: { x: 0, y: 0 } },
+      { id: 'b', type: 'note', position: { x: 0, y: 0 } },
+      { id: 'g', type: 'group', position: { x: 0, y: 0 } },
+    ];
+    const out = arrange(ns);
+    expect(ids(out)).toBe('b,g,a');
+    expect(out.map((n) => n.zIndex)).toEqual([0, 1, 2]);
+    expect(arrange(out)).toBe(out);
+  });
+});
+
+describe('copy & paste of board nodes', () => {
+  const ns: TreeNode[] = [
+    { id: 'g', type: 'group', position: { x: 100, y: 100 }, width: 400, height: 300 },
+    { id: 'f', type: 'file', parentId: 'g', position: { x: 10, y: 40 }, width: 100, height: 100 },
+    { id: 'e', type: 'editor', parentId: 'f', position: { x: 0, y: 40 }, width: 100, height: 60 },
+    { id: 's', type: 'shape', parentId: 'g', position: { x: 200, y: 50 }, width: 80, height: 40 },
+    { id: 'n', type: 'note', position: { x: 700, y: 0 }, width: 200, height: 200 },
+  ];
+  const noCode = (n: TreeNode) => n.type !== 'file' && n.type !== 'editor';
+
+  it('snapshots a nested node top-level at its canvas position', () => {
+    expect(copyTrees(ns, ['s'])).toEqual([{ id: 's', type: 'shape', position: { x: 300, y: 150 }, width: 80, height: 40 }]);
+  });
+
+  it('snapshots a group with its content, minus what `keep` rejects', () => {
+    const snap = copyTrees(ns, ['g', 'n'], noCode);
+    expect(ids(snap)).toBe('g,s,n');
+    expect(snap.find((n) => n.id === 's')).toMatchObject({ parentId: 'g', position: { x: 200, y: 50 } });
+  });
+
+  it('clones with fresh ids, remapped parents and moved roots', () => {
+    let i = 0;
+    const copies = cloneTrees(copyTrees(ns, ['g'], noCode), { x: 24, y: 24 }, () => `c${i++}`);
+    expect(copies).toMatchObject([
+      { id: 'c0', position: { x: 124, y: 124 } },
+      { id: 'c1', parentId: 'c0', position: { x: 200, y: 50 } },
+    ]);
+    // Pasting again gives new ids, and the originals are untouched.
+    expect(ids(cloneTrees(copyTrees(ns, ['g'], noCode), { x: 0, y: 0 }, () => `d${i++}`))).toBe('d2,d3');
+    expect(ns[0].position).toEqual({ x: 100, y: 100 });
+  });
+});
