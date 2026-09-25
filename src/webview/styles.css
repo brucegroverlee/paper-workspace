@@ -1483,3 +1483,20 @@ kbd {
   display: block;
   flex: none;
 }
+
+/* Size readout shown under a node while it is being resized. */
+.pw-resize-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  z-index: 1000;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font: 11px/1.4 var(--vscode-editor-font-family, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--pw-canvas-bg);
+  background: var(--pw-accent);
+}

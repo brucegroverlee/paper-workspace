@@ -62,6 +62,7 @@ import { FileNode } from './FileNode';
 import { watchHostTheme } from './monaco';
 import { handleLanguageMessage, registerLanguageBridge } from './language';
 import { ConfigPanel, HelpOverlay, Toolbar, ZOOM_LIMITS, type CreateKind, type Tool } from './Toolbar';
+import { ResizeBadge } from './ResizeBadge';
 import { ShapesPanel } from './ShapesPanel';
 import { SHAPE_DRAG_TYPE, shapeDef } from './shapes';
 import { host, onHostMessage } from './vscodeApi';
@@ -387,6 +388,7 @@ export function App() {
   const [workspaceError, setWorkspaceError] = useState<string>();
   const [tool, setTool] = useState<Tool>('select');
   const [help, setHelp] = useState(false);
+  const [resizingId, setResizingId] = useState<string | null>(null);
   const [config, setConfig] = useState<CanvasConfig>({
     minNodeWidth: DEFAULT_MIN_NODE_SIZE,
     minNodeHeight: DEFAULT_MIN_NODE_SIZE,
@@ -566,6 +568,7 @@ export function App() {
           dropped.add(c.id);
         }
         if (c.type === 'dimensions' && c.resizing === false) persist = true;
+        if (c.type === 'dimensions' && c.resizing !== undefined) setResizingId(c.resizing ? c.id : null);
         if (c.type === 'remove') removed = true;
       }
       if (removed) {
@@ -1250,6 +1253,7 @@ export function App() {
         >
           <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} />
           <MiniMap pannable zoomable position="bottom-right" nodeBorderRadius={8} />
+          {resizingId && <ResizeBadge id={resizingId} />}
         </ReactFlow>
         <Toolbar
           tool={tool}
