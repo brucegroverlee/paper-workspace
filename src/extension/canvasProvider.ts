@@ -222,6 +222,10 @@ class CanvasSession {
       case 'save':
         await this.saveAll();
         break;
+      case 'viewSource':
+        // showTextDocument always uses the text editor, never this custom editor.
+        await vscode.window.showTextDocument(this.document, { viewColumn: vscode.ViewColumn.Beside });
+        break;
       case 'setConfig':
         try {
           await updateCanvasConfig(m.config);

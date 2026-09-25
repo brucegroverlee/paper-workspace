@@ -75,6 +75,8 @@ export type WebviewToHost =
   | { type: 'goToDefinition'; file: string; line: number; column: number }
   | { type: 'dropUris'; uris: string[]; position: XY }
   | { type: 'save' }
+  /** Open the `.workspace` file itself in a text editor beside the canvas. */
+  | { type: 'viewSource' }
   | { type: 'setConfig'; config: Partial<CanvasConfig> }
   /** A single paper was selected or clicked into; the host reveals its file in the Explorer. */
   | { type: 'nodeFocused'; file: string }

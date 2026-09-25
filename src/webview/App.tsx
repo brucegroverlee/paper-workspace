@@ -1264,6 +1264,7 @@ export function App() {
           onShapes={() => togglePanel('shapes')}
           configOpen={panel === 'config'}
           onConfig={() => togglePanel('config')}
+          onViewSource={() => host.postMessage({ type: 'viewSource' })}
         />
         {panel === 'config' && <ConfigPanel config={config} onChange={changeConfig} onClose={() => setPanel(null)} />}
         {panel === 'shapes' && <ShapesPanel onAdd={(shape) => addShape(shape)} onClose={() => setPanel(null)} />}
