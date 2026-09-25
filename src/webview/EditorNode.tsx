@@ -6,6 +6,7 @@ import type { EditorSettings } from '../shared/protocol';
 import { useDoc, useWorkspace, type EditorNodeData, type RFEditorNode } from './context';
 import { monaco } from './monaco';
 import { ZOOM_LIMITS } from './Toolbar';
+import { NodeHandles } from './handles';
 
 /** Below this canvas zoom, editors render as a static preview instead of a live Monaco instance. */
 const LIVE_EDITOR_MIN_ZOOM = 0.35;
@@ -81,6 +82,7 @@ export const EditorNode = memo(function EditorNode({ id, data, selected }: NodeP
   return (
     <div className={`pw-editor${selected ? ' selected' : ''}`}>
       <NodeResizer isVisible={selected} minWidth={ctx.config.minNodeWidth} minHeight={ctx.config.minNodeHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
+      <NodeHandles />
       <header
         className="pw-editor-header"
         onContextMenu={(e) => {

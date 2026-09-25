@@ -1,6 +1,6 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
-import type { Node } from '@xyflow/react';
-import type { LineRange } from '../shared/workspace';
+import type { Edge, Node } from '@xyflow/react';
+import type { LineRange, WorkspaceEdge } from '../shared/workspace';
 import type { CanvasConfig, EditorSettings } from '../shared/protocol';
 import { docStore } from './docStore';
 
@@ -36,6 +36,10 @@ export type RFNode = RFFileNode | RFEditorNode | RFGroupNode | RFTextNode | RFMe
 /** Board node data that can be edited from its toolbar. */
 export type BoardDataPatch = Partial<GroupNodeData & TextNodeData & ShapeNodeData>;
 
+/** A link's look and label; its ends are the edge's `source`/`target`, its sides `sourceHandle`/`targetHandle` (null = automatic). */
+export type LinkData = Omit<WorkspaceEdge, 'id' | 'source' | 'target' | 'sourceSide' | 'targetSide'>;
+export type RFEdge = Edge<LinkData, 'link'>;
+
 export interface WorkspaceActions {
   settings: EditorSettings;
   config: CanvasConfig;
@@ -47,6 +51,11 @@ export interface WorkspaceActions {
   remove(id: string): void;
   /** Change a group/text/note/shape's title, text, colors or font. */
   updateData(id: string, patch: BoardDataPatch): void;
+  /** Change a link's look or label. */
+  updateLink(id: string, patch: Partial<LinkData>): void;
+  /** Swap a link's ends, so its arrow points the other way. */
+  reverseLink(id: string): void;
+  removeLink(id: string): void;
   /** Set a node's height (text nodes grow with their content). */
   setHeight(id: string, height: number): void;
   /** Move a group's children to its parent and remove the group. */

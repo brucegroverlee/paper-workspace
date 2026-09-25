@@ -21,6 +21,7 @@ import {
 import { baseName } from '../shared/paths';
 import { useWorkspace, type RFGroupNode, type RFMediaNode, type RFShapeNode, type RFTextNode } from './context';
 import { shapeDef, textBoxOf, type ShapeDef } from './shapes';
+import { NodeHandles } from './handles';
 
 /** Nodes that start in edit mode when they mount (just created). */
 const editOnMount = new Set<string>();
@@ -33,7 +34,7 @@ function useEditing(id: string) {
   return [editing, setEditing] as const;
 }
 
-const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+export const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 
 // ---- group ----------------------------------------------------------------------------------------
 
@@ -70,6 +71,7 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: NodePro
         handleClassName="pw-resize-handle"
       />
       <BoardToolbar id={id} colors={[{ key: 'color', kind: 'background', value: data.color, allowDefault: true }]} group />
+      <NodeHandles />
       <header
         className="pw-group-header"
         onDoubleClick={() => setEditing(true)}
@@ -198,6 +200,7 @@ export const TextNode = memo(function TextNode({ id, type, data, selected, heigh
         }
         font={{ size: fontSize, weight: fontWeight }}
       />
+      <NodeHandles />
       <div ref={contentRef} className="pw-text-content">
         {editing ? (
           <TextEditor value={data.text} onDone={finish} />
@@ -211,7 +214,7 @@ export const TextNode = memo(function TextNode({ id, type, data, selected, heigh
   );
 });
 
-function TextEditor(props: { value: string; onDone(v: string): void }) {
+export function TextEditor(props: { value: string; onDone(v: string): void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [v, setV] = useState(props.value);
   const done = useRef(false);
@@ -323,6 +326,7 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected, width, he
         ]}
         font={{ size: fontSize, weight: fontWeight }}
       />
+      <NodeHandles />
       <ShapeSvg className="pw-shape-svg" def={def} width={w} height={h} fill={fill} stroke={stroke} />
       <div className={`pw-shape-label${def.labelBelow ? ' below' : ''}${onCanvas && !data.textColor ? ' on-canvas' : ''}`} style={labelStyle}>
         {editing ? <TextEditor value={data.text} onDone={finish} /> : data.text}
@@ -351,6 +355,7 @@ export const MediaNode = memo(function MediaNode({ id, data, selected }: NodePro
     >
       <NodeResizer isVisible={selected} keepAspectRatio minWidth={40} minHeight={40} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
       <BoardToolbar id={id} />
+      <NodeHandles />
       {video && (
         <div className="pw-media-grip" title={data.src}>
           <span className="codicon codicon-device-camera-video" />
@@ -468,7 +473,7 @@ function BoardToolbar(props: { id: string; colors?: ColorSlot[]; font?: { size: 
   );
 }
 
-function ToolbarButton(props: { label: string; active?: boolean; onClick(): void; children: ReactNode }) {
+export function ToolbarButton(props: { label: string; active?: boolean; onClick(): void; children: ReactNode }) {
   return (
     <button className={`pw-node-toolbar-button${props.active ? ' active' : ''}`} title={props.label} aria-label={props.label} aria-pressed={props.active} onClick={props.onClick}>
       {props.children}
@@ -502,7 +507,7 @@ function useFlipBelow(ref: RefObject<HTMLElement | null>) {
 }
 
 /** Editable font size (any value in range, committed on Enter/blur) with a dropdown of common sizes. */
-function FontSizeField(props: { value: number; open: boolean; onToggle(): void; onClose(): void; onPick(size: number): void }) {
+export function FontSizeField(props: { value: number; open: boolean; onToggle(): void; onClose(): void; onPick(size: number): void }) {
   const [draft, setDraft] = useState(String(props.value));
   useEffect(() => setDraft(String(props.value)), [props.value]);
   const commit = (raw: string) => {
@@ -554,20 +559,30 @@ function FontSizeField(props: { value: number; open: boolean; onToggle(): void; 
   );
 }
 
-type Option = { value: number; label: string; style?: CSSProperties };
+export type Option<T extends string | number = number> = { value: T; label: string; style?: CSSProperties; icon?: ReactNode };
 
-function Dropdown(props: { label: string; value: number; options: Option[]; open: boolean; onToggle(): void; onClose(): void; onPick(v: number): void }) {
+/** A dropdown button; `compact` shows only the current option's icon (options with icons show them in the menu too). */
+export function Dropdown<T extends string | number>(props: {
+  label: string;
+  value: T;
+  options: Option<T>[];
+  compact?: boolean;
+  open: boolean;
+  onToggle(): void;
+  onClose(): void;
+  onPick(v: T): void;
+}) {
   const current = props.options.find((o) => o.value === props.value);
   return (
     <div className="pw-dropdown">
       <button
-        className={`pw-dropdown-button${props.open ? ' active' : ''}`}
-        title={props.label}
+        className={`pw-dropdown-button${props.compact ? ' compact' : ''}${props.open ? ' active' : ''}`}
+        title={current ? `${props.label}: ${current.label}` : props.label}
         aria-label={props.label}
         aria-expanded={props.open}
         onClick={props.onToggle}
       >
-        <span style={current?.style}>{current?.label ?? props.value}</span>
+        {props.compact && current?.icon ? current.icon : <span style={current?.style}>{current?.label ?? props.value}</span>}
         <span className="codicon codicon-chevron-down" />
       </button>
       {props.open && (
@@ -586,7 +601,7 @@ function Dropdown(props: { label: string; value: number; options: Option[]; open
   );
 }
 
-function DropdownMenu(props: { label: string; value: number; options: Option[]; onPick(v: number): void; onClose(): void }) {
+function DropdownMenu<T extends string | number>(props: { label: string; value: T; options: Option<T>[]; onPick(v: T): void; onClose(): void }) {
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, props.onClose);
   const below = useFlipBelow(ref);
@@ -605,6 +620,7 @@ function DropdownMenu(props: { label: string; value: number; options: Option[]; 
           onClick={() => props.onPick(o.value)}
         >
           <span className={`codicon codicon-check${o.value === props.value ? '' : ' hidden'}`} />
+          {o.icon}
           {o.label}
         </button>
       ))}
@@ -612,7 +628,7 @@ function DropdownMenu(props: { label: string; value: number; options: Option[]; 
   );
 }
 
-function ColorPalette(props: {
+export function ColorPalette(props: {
   value?: string;
   allowDefault?: boolean;
   allowNone?: boolean;

@@ -5,6 +5,7 @@ import { displayPath } from '../shared/paths';
 import { useDoc, useWorkspace, type RFEditorNode, type RFFileNode } from './context';
 import { EditorBody, TargetControls } from './EditorNode';
 import { languageBadge } from './monaco';
+import { NodeHandles } from './handles';
 
 /** Smallest size that still contains every visible child editor, as "WxH" (a string keeps the selector stable). */
 function useChildrenExtent(id: string) {
@@ -41,6 +42,7 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
   return (
     <div className={`pw-file${single ? ' single' : ''}${selected ? ' selected' : ''}`}>
       <NodeResizer isVisible={selected} minWidth={minWidth} minHeight={minHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
+      <NodeHandles />
       <header
         className="pw-file-header"
         onDoubleClick={() => ctx.openInEditor(data.file, single?.data.target?.start ?? 1)}

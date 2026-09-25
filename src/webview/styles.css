@@ -12,6 +12,8 @@
   --pw-fg: var(--vscode-foreground, #cccccc);
   --pw-muted: var(--vscode-descriptionForeground, #8b949e);
   --pw-accent: var(--vscode-focusBorder, #3794ff);
+  /* Pinned line ranges. Yellow so it isn't confused with Git's blue/green/red gutter marks. */
+  --pw-highlight: #e8c547;
   --pw-toolbar-bg: var(--vscode-editorWidget-background, #252a33);
   --pw-hover: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
   --pw-dirty: var(--vscode-editorGutter-modifiedBackground, #e2c08d);
@@ -375,19 +377,22 @@ body {
 }
 
 /* The paper being typed in or pointed at stays above its neighbors, so its hovers and suggestions are not covered
-   by them. Widgets are DOM children of their paper, so moving the mouse onto one keeps the paper hovered. */
-.react-flow__node:focus-within,
-.react-flow__node:hover {
-  z-index: 1000 !important;
+   by them. Widgets are DOM children of their paper, so moving the mouse onto one keeps the paper hovered.
+   Containers (file nodes, groups) are excluded: raising one would lift its translucent body over its children.
+   The value must exceed React Flow's selection elevation (1000 + stacking order + nesting depth); otherwise a
+   hovered child of a selected container drops to its parent's level, gets covered, loses :hover and flickers. */
+.react-flow__node:not(.react-flow__node-file, .react-flow__node-group):focus-within,
+.react-flow__node:not(.react-flow__node-file, .react-flow__node-group):hover {
+  z-index: 100000 !important;
 }
 
 /* Target lines: tinted background plus an accent bar in the decorations lane. */
 .pw-target-line {
-  background: color-mix(in srgb, var(--pw-accent) 9%, transparent);
+  background: color-mix(in srgb, var(--pw-highlight) 12%, transparent);
 }
 
 .pw-target-gutter {
-  background: var(--pw-accent);
+  background: var(--pw-highlight);
   width: 3px !important;
   margin-left: 3px;
 }
@@ -1383,4 +1388,98 @@ kbd {
   grid-column: 1 / -1;
   padding: 8px 0;
   color: var(--pw-muted);
+}
+
+/* ---- links: side handles, lines, labels and the link toolbar ---------------------------------------- */
+
+/* A dot centered on each side (the size must match HANDLE_SIZE in handles.tsx); shown on hover and while linking. */
+.react-flow__handle.pw-handle {
+  width: 10px;
+  height: 10px;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  border: 2px solid var(--pw-accent);
+  border-radius: 50%;
+  background: var(--pw-toolbar-bg);
+  opacity: 0;
+  z-index: 2;
+  transition: opacity 0.1s, transform 0.1s;
+}
+
+.react-flow__node:hover > * > .pw-handle,
+.pw-canvas.connecting .pw-handle {
+  opacity: 1;
+}
+
+.react-flow__handle.pw-handle:hover,
+.react-flow__handle.pw-handle.connectingto {
+  background: var(--pw-accent);
+}
+
+.pw-canvas.tool-hand .pw-handle,
+.react-flow__node.dragging .pw-handle {
+  display: none;
+}
+
+.pw-link-halo {
+  fill: none;
+  stroke: var(--pw-accent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.react-flow__edge:hover .pw-link-halo {
+  opacity: 0.18;
+}
+
+.react-flow__edge.selected .pw-link-halo {
+  opacity: 0.4;
+}
+
+.pw-link-label {
+  position: absolute;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--pw-canvas-bg);
+  font-family: var(--pw-font);
+  line-height: 1.3;
+  text-align: center;
+  white-space: pre;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.pw-link-label.editing {
+  min-width: 160px;
+  cursor: text;
+  box-shadow: 0 0 0 1px var(--pw-accent);
+}
+
+.pw-link-label .pw-text-input {
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+.pw-link-toolbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--pw-font);
+}
+
+.pw-dropdown-button.compact {
+  min-width: 0;
+  padding: 0 2px 0 4px;
+  gap: 0;
+}
+
+.pw-link-icon {
+  display: block;
+  flex: none;
 }

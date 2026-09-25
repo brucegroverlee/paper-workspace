@@ -2,10 +2,16 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   Background,
   BackgroundVariant,
+  ConnectionMode,
   MiniMap,
   ReactFlow,
+  useEdgesState,
   useNodesState,
   useReactFlow,
+  useStore,
+  type Connection,
+  type EdgeChange,
+  type FinalConnectionState,
   type NodeChange,
   type Viewport,
 } from '@xyflow/react';
@@ -35,6 +41,8 @@ import {
   stackPosition,
   type StackOp,
   isLightColor,
+  SIDES,
+  type Side,
   type EditorNode as WorkspaceEditorNode,
   type LineRange,
   type WorkspaceEdge,
@@ -45,7 +53,9 @@ import { isAbsoluteWorkspacePath } from '../shared/paths';
 import type { CanvasConfig, EditorSettings, HostToWebview } from '../shared/protocol';
 import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isWithin, reparent, sizeOf } from './boardLayout';
 import { GroupNode, MediaNode, ShapeNode, TextNode, editWhenMounted } from './BoardNodes';
-import { WorkspaceContext, type WorkspaceActions, type RFEditorNode, type RFFileNode, type RFGroupNode, type RFNode, type RFShapeNode } from './context';
+import { WorkspaceContext, type WorkspaceActions, type RFEdge, type RFEditorNode, type RFFileNode, type RFGroupNode, type RFNode, type RFShapeNode } from './context';
+import { facingSides, nearestSide, nodeHandles } from './handles';
+import { LinkEdge } from './Links';
 import { docStore } from './docStore';
 import { EditorNode, editorHasFocus, focusLastEditor, lastFocusedEditorId, requestScrollToTarget, selectedLines } from './EditorNode';
 import { FileNode } from './FileNode';
@@ -57,6 +67,7 @@ import { SHAPE_DRAG_TYPE, shapeDef } from './shapes';
 import { host, onHostMessage } from './vscodeApi';
 
 const nodeTypes = { file: FileNode, editor: EditorNode, group: GroupNode, text: TextNode, note: TextNode, media: MediaNode, shape: ShapeNode };
+const edgeTypes = { link: LinkEdge };
 const COMMIT_DELAY = 250;
 
 interface PersistedState {
@@ -178,7 +189,87 @@ function normalizeLayout(ns: RFNode[]): RFNode[] {
 /** Boxes stack among the boxes of their group (or the canvas), editors among the editors of their file. */
 const stackGroup = (n: RFNode) => n.parentId;
 
-function toWorkspace(nodes: RFNode[], edges: WorkspaceEdge[]): WorkspaceFile {
+const sideOf = (handle: string | null | undefined): Side | undefined => SIDES.find((s) => s === handle);
+
+function toRFEdges(workspace: WorkspaceFile, prev: RFEdge[]): RFEdge[] {
+  const selected = new Set(prev.filter((e) => e.selected).map((e) => e.id));
+  return workspace.edges.map(({ id, source, target, sourceSide, targetSide, ...data }) => ({
+    id,
+    type: 'link',
+    source,
+    target,
+    sourceHandle: sourceSide ?? null,
+    targetHandle: targetSide ?? null,
+    selected: selected.has(id),
+    data,
+  }));
+}
+
+/** Links whose ends both still exist (removing a node drops its links). */
+function toWorkspaceEdges(nodes: RFNode[], edges: RFEdge[]): WorkspaceEdge[] {
+  const ids = new Set(nodes.map((n) => n.id));
+  return edges
+    .filter((e) => ids.has(e.source) && ids.has(e.target))
+    .map((e) => ({ ...e.data, id: e.id, source: e.source, target: e.target, sourceSide: sideOf(e.sourceHandle), targetSide: sideOf(e.targetHandle) }));
+}
+
+/** Each node with its four handles as data, so links draw even to nodes that are not mounted (cached per node object). */
+const handleCache = new WeakMap<RFNode, RFNode>();
+function withHandles(n: RFNode): RFNode {
+  let out = handleCache.get(n);
+  if (!out) {
+    const { width, height } = sizeOf(n);
+    out = { ...n, handles: nodeHandles(width, height) } as RFNode;
+    handleCache.set(n, out);
+  }
+  return out;
+}
+
+/**
+ * The links React Flow draws: an end on an embedded (hidden) editor is drawn on its file node; ends without a chosen
+ * side use the sides facing each other. A link paints above both of its ends.
+ */
+function shownLinks(nodes: RFNode[], edges: RFEdge[]): RFEdge[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const shown = (id: string) => {
+    const n = byId.get(id);
+    return n?.hidden && n.parentId ? byId.get(n.parentId) : n;
+  };
+  const rect = (n: RFNode) => ({ ...absolutePos(nodes, n.id), ...sizeOf(n) });
+  const out: RFEdge[] = [];
+  for (const e of edges) {
+    const s = shown(e.source);
+    const t = shown(e.target);
+    if (!s || !t || s.id === t.id) continue;
+    const auto = e.sourceHandle && e.targetHandle ? undefined : facingSides(rect(s), rect(t));
+    // React Flow adds a child node's own z-index on top of this; top-level ends need it here.
+    const z = Math.max(s.parentId === undefined ? s.zIndex ?? 0 : 0, t.parentId === undefined ? t.zIndex ?? 0 : 0) + 1;
+    out.push({
+      ...e,
+      source: s.id,
+      target: t.id,
+      sourceHandle: e.sourceHandle ?? auto!.source,
+      targetHandle: e.targetHandle ?? auto!.target,
+      zIndex: z,
+    });
+  }
+  return out;
+}
+
+/** The node under a pointer (the topmost one; none if it is `except`) and its side facing the pointer. */
+function nodeSideAt(rf: ReturnType<typeof useReactFlow<RFNode>>, event: MouseEvent | TouchEvent, except: string) {
+  const point = 'changedTouches' in event ? event.changedTouches[0] : event;
+  if (!point) return undefined;
+  const el = document.elementsFromPoint(point.clientX, point.clientY).find((e) => e.closest('.react-flow__node'));
+  const id = el?.closest('.react-flow__node')?.getAttribute('data-id');
+  const node = id && id !== except ? rf.getInternalNode(id) : undefined;
+  if (!node) return undefined;
+  const p = rf.screenToFlowPosition({ x: point.clientX, y: point.clientY });
+  const { width = 0, height = 0 } = node.measured;
+  return { id: node.id, side: nearestSide({ ...node.internals.positionAbsolute, width, height }, p) };
+}
+
+function toWorkspace(nodes: RFNode[], edges: RFEdge[]): WorkspaceFile {
   nodes = normalizeLayout(nodes); // sync embedded editors with their (possibly resized) file
   const out: WorkspaceNode[] = nodes.map((n) => {
     const rect = {
@@ -203,7 +294,7 @@ function toWorkspace(nodes: RFNode[], edges: WorkspaceEdge[]): WorkspaceFile {
         return { ...rect, ...parent, type: n.type, text: n.data.text, color: n.data.color, textColor: n.data.textColor, fontSize: n.data.fontSize, fontWeight: n.data.fontWeight };
     }
   });
-  return { version: WORKSPACE_VERSION, nodes: out, edges };
+  return { version: WORKSPACE_VERSION, nodes: out, edges: toWorkspaceEdges(nodes, edges) };
 }
 
 /** Keep the docStore's range trackers in sync with the editors that have a target. */
@@ -310,9 +401,11 @@ export function App() {
   const [nodeMenu, setNodeMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [, setThemeTick] = useState(0);
 
+  const [edges, setEdges, onEdgesChangeBase] = useEdgesState<RFEdge>([]);
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
-  const edgesRef = useRef<WorkspaceEdge[]>([]);
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const readOnlyRef = useRef(false);
@@ -350,10 +443,10 @@ export function App() {
     (workspace: WorkspaceFile, error?: string) => {
       readOnlyRef.current = !!error;
       setWorkspaceError(error);
-      edgesRef.current = workspace.edges;
+      setEdges((prev) => toRFEdges(workspace, prev));
       updateNodes((prev) => toRFNodes(workspace, prev), false);
     },
-    [updateNodes],
+    [setEdges, updateNodes],
   );
 
   // ---- host messages -----------------------------------------------------------------------------
@@ -490,6 +583,80 @@ export function App() {
     [commit, onNodesChangeBase, updateNodes],
   );
 
+  // ---- links -------------------------------------------------------------------------------------
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange<RFEdge>[]) => {
+      onEdgesChangeBase(changes);
+      if (changes.some((c) => c.type === 'remove')) commit();
+    },
+    [commit, onEdgesChangeBase],
+  );
+
+  /** Add a link as the new selection (so its toolbar shows right away). */
+  const addLink = useCallback(
+    (c: { source: string; target: string; sourceHandle: string | null; targetHandle: string | null }) => {
+      if (readOnlyRef.current || c.source === c.target) return;
+      setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n)));
+      setEdges((es) => [
+        ...es.map((e) => (e.selected ? { ...e, selected: false } : e)),
+        { id: newId('l'), type: 'link', ...c, selected: true, data: {} },
+      ]);
+      commit();
+    },
+    [commit, setEdges, setNodes],
+  );
+
+  const onConnect = useCallback((c: Connection) => addLink(c), [addLink]);
+  /** Set while an existing link's end is dragged: React Flow then reports the drop to onConnectEnd too. */
+  const reconnecting = useRef(false);
+
+  // Dropping a new link on a node's body (not on a handle) attaches it to the side facing the pointer.
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      if (reconnecting.current || state.isValid || !state.fromNode || !state.fromHandle) return;
+      const hit = nodeSideAt(rf, event, state.fromNode.id);
+      if (hit) addLink({ source: state.fromNode.id, sourceHandle: state.fromHandle.id ?? null, target: hit.id, targetHandle: hit.side });
+    },
+    [addLink, rf],
+  );
+
+  const moveLinkEnd = useCallback(
+    (id: string, end: 'source' | 'target', node: string, side: string | null) => {
+      setEdges((es) =>
+        es.map((e) => {
+          if (e.id !== id) return e;
+          const moved = end === 'source' ? { ...e, source: node, sourceHandle: side } : { ...e, target: node, targetHandle: side };
+          return moved.source === moved.target ? e : moved;
+        }),
+      );
+      commit();
+    },
+    [commit, setEdges],
+  );
+
+  const onReconnect = useCallback(
+    (old: RFEdge, c: Connection) => {
+      moveLinkEnd(old.id, 'source', c.source, c.sourceHandle ?? null);
+      moveLinkEnd(old.id, 'target', c.target, c.targetHandle ?? null);
+    },
+    [moveLinkEnd],
+  );
+
+  // A dragged link end dropped on a node's body; `fixed` is the type of the end that stayed put.
+  const onReconnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, edge: RFEdge, fixed: 'source' | 'target', state: FinalConnectionState) => {
+      setTimeout(() => (reconnecting.current = false)); // after onConnectEnd, whichever order they come in
+      if (state.isValid) return;
+      const moved = fixed === 'source' ? 'target' : 'source';
+      const hit = nodeSideAt(rf, event, fixed === 'source' ? edge.source : edge.target);
+      if (hit) moveLinkEnd(edge.id, moved, hit.id, hit.side);
+    },
+    [moveLinkEnd, rf],
+  );
+
+  const connecting = useStore((s) => s.connection.inProgress);
+
   // Mirror VS Code's explorer.autoReveal: the focused node's file gets selected in the Explorer.
   // Selection-change events repeat for the same node, so only report changes (focus always reports).
   const lastFocused = useRef<string | null>(null);
@@ -569,6 +736,20 @@ export function App() {
       },
       updateData: (id, patch) =>
         updateNodes((ns) => ns.map((n) => (n.id === id && !isFile(n) && !isEditor(n) ? ({ ...n, data: { ...n.data, ...patch } } as RFNode) : n))),
+      updateLink: (id, patch) => {
+        setEdges((es) => es.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
+        commit();
+      },
+      reverseLink: (id) => {
+        setEdges((es) =>
+          es.map((e) => (e.id === id ? { ...e, source: e.target, target: e.source, sourceHandle: e.targetHandle, targetHandle: e.sourceHandle } : e)),
+        );
+        commit();
+      },
+      removeLink: (id) => {
+        setEdges((es) => es.filter((e) => e.id !== id));
+        commit();
+      },
       setHeight: (id, height) =>
         updateNodes((ns) => {
           const n = ns.find((x) => x.id === id);
@@ -598,7 +779,7 @@ export function App() {
       goToDefinition: (file, line, column) => host.postMessage({ type: 'goToDefinition', file, line, column }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings, config, rf, setNodes, updateNodes, revealInExplorer]);
+  }, [settings, config, rf, setNodes, setEdges, commit, updateNodes, revealInExplorer]);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
 
@@ -750,35 +931,42 @@ export function App() {
   // ---- copy & paste of board nodes (files and snippets are not copied: a file appears once per canvas) ----
 
   /**
-   * Copied nodes (a `copyTrees` snapshot). `marker` is what we put on the system clipboard, so a paste only
-   * uses these nodes while nothing else has been copied since (unset if the clipboard was not writable).
+   * Copied nodes (a `copyTrees` snapshot) and the links between them. `marker` is what we put on the system
+   * clipboard, so a paste only uses these nodes while nothing else has been copied since (unset if the clipboard
+   * was not writable).
    */
-  const clip = useRef<{ nodes: RFNode[]; marker?: string; pastes: number; at?: { x: number; y: number } } | null>(null);
+  const clip = useRef<{ nodes: RFNode[]; links: RFEdge[]; marker?: string; pastes: number; at?: { x: number; y: number } } | null>(null);
   const copyable = (n: RFNode) => !isFile(n) && !isEditor(n);
 
-  /** Snapshot of the selected board nodes (or of `id`), with what is inside them; null if there are none. */
+  /** Snapshot of the selected board nodes (or of `id`), with what is inside them and their links; null if there are none. */
   const snapshotSelection = (id?: string) => {
     const ns = nodesRef.current;
     const roots = (id ? ns.filter((n) => n.id === id) : selectionRoots(ns)).filter(copyable);
-    return roots.length ? copyTrees(ns, roots.map((r) => r.id), copyable) : null;
+    if (!roots.length) return null;
+    const nodes = copyTrees(ns, roots.map((r) => r.id), copyable);
+    const ids = new Set(nodes.map((n) => n.id));
+    return { nodes, links: edgesRef.current.filter((e) => ids.has(e.source) && ids.has(e.target)) };
   };
 
   /** Add copies of a snapshot moved by `offset` as the new selection; a copy landing on a group goes into it. */
   const insertCopies = useCallback(
-    (snapshot: RFNode[], offset: { x: number; y: number }) => {
-      const copies = cloneTrees(snapshot, offset, (n) => newId(n.id.split('_')[0] || 'n')).map((n) => ({ ...n, selected: n.parentId === undefined }));
+    (snapshot: { nodes: RFNode[]; links: RFEdge[] }, offset: { x: number; y: number }) => {
+      const copies = cloneTrees(snapshot.nodes, offset, (n) => newId(n.id.split('_')[0] || 'n')).map((n) => ({ ...n, selected: n.parentId === undefined }));
       const roots = new Set(copies.filter((n) => n.parentId === undefined).map((n) => n.id));
+      const copyOf = new Map(snapshot.nodes.map((n, i) => [n.id, copies[i].id])); // cloneTrees keeps the order
+      const links = snapshot.links.map((e) => ({ ...e, id: newId('l'), source: copyOf.get(e.source)!, target: copyOf.get(e.target)!, selected: false }));
       updateNodes((ns) => dropNodes([...ns.map((n) => (n.selected ? { ...n, selected: false } : n)), ...copies], roots));
+      if (links.length) setEdges((es) => [...es.map((e) => (e.selected ? { ...e, selected: false } : e)), ...links]);
     },
-    [updateNodes],
+    [setEdges, updateNodes],
   );
 
   /** Copy (or cut) the selected board nodes; false if there were none, so the key keeps its usual meaning. */
   const copySelection = useCallback(
     (cut: boolean) => {
-      const nodes = snapshotSelection();
-      if (!nodes) return false;
-      const entry: NonNullable<typeof clip.current> = { nodes, pastes: 0 };
+      const snapshot = snapshotSelection();
+      if (!snapshot) return false;
+      const entry: NonNullable<typeof clip.current> = { ...snapshot, pastes: 0 };
       clip.current = entry;
       const marker = `paper-workspace-nodes:${newId('c')}`;
       navigator.clipboard?.writeText(marker).then(
@@ -786,7 +974,7 @@ export function App() {
         () => {},
       );
       if (cut && !readOnlyRef.current) {
-        const ids = new Set(nodes.filter((n) => n.parentId === undefined).map((n) => n.id));
+        const ids = new Set(snapshot.nodes.filter((n) => n.parentId === undefined).map((n) => n.id));
         updateNodes((ns) => pruneNodes(ns.filter((n) => !ids.has(n.id))));
       }
       return true;
@@ -815,15 +1003,15 @@ export function App() {
     const offset = at
       ? { x: Math.round(at.x - (minX + maxX) / 2) + step, y: Math.round(at.y - (minY + maxY) / 2) + step }
       : { x: step, y: step };
-    insertCopies(c.nodes, offset);
+    insertCopies(c, offset);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [insertCopies]);
 
   /** Duplicate the selection (or node `id`) next to itself; the clipboard is left alone. */
   const duplicateSelection = useCallback(
     (id?: string) => {
-      const nodes = snapshotSelection(id);
-      if (nodes && !readOnlyRef.current) insertCopies(nodes, { x: 24, y: 24 });
+      const snapshot = snapshotSelection(id);
+      if (snapshot && !readOnlyRef.current) insertCopies(snapshot, { x: 24, y: 24 });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [insertCopies],
@@ -937,10 +1125,10 @@ export function App() {
   }, [createNode, togglePanel, copySelection, duplicateSelection]);
 
   const shownNodes = useMemo(
-    () =>
-      dropTarget ? nodes.map((n) => (n.id === dropTarget ? { ...n, className: `${n.className ?? ''} pw-drop-target` } : n)) : nodes,
+    () => nodes.map((n) => withHandles(n.id === dropTarget ? { ...n, className: `${n.className ?? ''} pw-drop-target` } : n)),
     [nodes, dropTarget],
   );
+  const shownEdges = useMemo(() => shownLinks(nodes, edges), [nodes, edges]);
 
   // Optimistic; the host echoes the stored settings back. Batched, so dragging in a color picker doesn't write
   // the settings file on every mouse move.
@@ -1010,17 +1198,31 @@ export function App() {
   return (
     <WorkspaceContext.Provider value={actions}>
       <div
-        className={`pw-canvas${hand ? ' tool-hand' : ''}`}
+        className={`pw-canvas${hand ? ' tool-hand' : ''}${connecting ? ' connecting' : ''}`}
         onDragOver={onDragOver}
         onDrop={onDrop}
         onPointerMove={(e) => (pointer.current = { x: e.clientX, y: e.clientY })}
         onPointerLeave={() => (pointer.current = null)}
       >
-        <ReactFlow<RFNode>
+        <ReactFlow<RFNode, RFEdge>
           nodes={shownNodes}
-          edges={[]}
+          edges={shownEdges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          // Loose: every handle is a source and any side connects to any side of another node.
+          connectionMode={ConnectionMode.Loose}
+          nodesConnectable={!hand && !workspaceError}
+          edgesReconnectable={!hand && !workspaceError}
+          isValidConnection={(c) => c.source !== c.target}
+          onConnect={onConnect}
+          onConnectEnd={onConnectEnd}
+          onReconnect={onReconnect}
+          onReconnectStart={() => (reconnecting.current = true)}
+          onReconnectEnd={onReconnectEnd}
+          connectionRadius={24}
+          connectionLineStyle={{ stroke: 'var(--pw-accent)', strokeWidth: 2 }}
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           defaultViewport={initialViewport}

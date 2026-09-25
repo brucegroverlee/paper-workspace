@@ -218,6 +218,7 @@ export function HelpOverlay(props: { onClose(): void }) {
     ['Group', 'Ctrl+G wraps the selection in a group (or adds an empty one); drag nodes in or out by dropping them; Ctrl+Shift+G ungroups'],
     ['Text & notes', 'T adds text, N a sticky note; double-click to edit, Esc or Ctrl+Enter to finish'],
     ['Shapes', 'The shapes button (S) opens the shape library: click a shape to add it, or drag it onto the canvas or into a group; double-click a shape to label it'],
+    ['Links', 'Hover a node and drag from a dot on any side onto another node (or its side); select a link to change its color, thickness, line style, path, arrow heads and label; double-click it to write the label; drag an end to reconnect it'],
     ['Copy & paste', 'Ctrl+C / Ctrl+X copy or cut the selected groups, text, notes, shapes and media; Ctrl+V pastes at the pointer (as often as you like); Ctrl+D duplicates'],
     ['Media', 'Toolbar image button, Ctrl+V with an image on the clipboard, or drop image/video files'],
     ['Colors & fonts', 'Select a group, text, note or shape and use the toolbar above it; the canvas background is in the ⚙ configuration panel'],

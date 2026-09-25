@@ -89,6 +89,37 @@ describe('parseWorkspace / serializeWorkspace', () => {
     expect(workspace.edges).toEqual([]);
   });
 
+  it('links: keeps sides and style, drops invalid values, leaves defaults out of the file', () => {
+    const nodes = [
+      { id: 's1', type: 'shape', shape: 'rectangle', text: '' },
+      { id: 's2', type: 'shape', shape: 'ellipse', text: '' },
+    ];
+    const { workspace } = parseWorkspace(
+      JSON.stringify({
+        nodes,
+        edges: [
+          { id: 'plain', source: 's1', target: 's2' },
+          {
+            id: 'styled', source: 's1', sourceSide: 'right', target: 's2', targetSide: 'middle', path: 'rounded', color: '#FF0000',
+            width: 4, dash: 'dotted', startMarker: 'circle', endMarker: 'none', label: 'calls', labelColor: 'red', fontSize: 18, fontWeight: 650,
+          },
+          { id: 'defaults', source: 's2', target: 's1', path: 'curve', width: 2, dash: 'solid', startMarker: 'none', endMarker: 'arrow', label: '' },
+        ],
+      }),
+    );
+    expect(workspace.edges[0]).toEqual({ id: 'plain', source: 's1', target: 's2' });
+    expect(workspace.edges[1]).toEqual({
+      id: 'styled', source: 's1', sourceSide: 'right', target: 's2', path: 'rounded', color: '#ff0000',
+      width: 4, dash: 'dotted', startMarker: 'circle', endMarker: 'none', label: 'calls', fontSize: 18, fontWeight: 700,
+    });
+    const saved = JSON.parse(serializeWorkspace(workspace)).edges;
+    // `endMarker: 'none'` differs from the default arrow, so it is kept; default values are not written.
+    expect(saved[1]).toMatchObject({ endMarker: 'none', startMarker: 'circle' });
+    expect(saved[2]).toEqual({ id: 'defaults', source: 's2', target: 's1' });
+    const text = serializeWorkspace(workspace);
+    expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
+  });
+
   it('migrates v1 flat code nodes to a file node with one targeted editor', () => {
     const v1 = {
       version: 1,

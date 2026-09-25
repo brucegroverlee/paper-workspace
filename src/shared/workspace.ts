@@ -116,10 +116,40 @@ export type BoxNode = FileNode | GroupNode | TextNode | MediaNode | ShapeNode;
 // Readers must ignore unknown kinds, so later kinds can be added without breaking older files.
 export type WorkspaceNode = BoxNode | EditorNode;
 
+/** Side of a node a link attaches to. */
+export type Side = 'top' | 'right' | 'bottom' | 'left';
+export const SIDES: readonly Side[] = ['top', 'right', 'bottom', 'left'];
+/** How a link is drawn between its ends: a curve, a straight line, or right angles (sharp or rounded corners). */
+export type EdgePath = 'curve' | 'straight' | 'step' | 'rounded';
+export const EDGE_PATHS: readonly EdgePath[] = ['curve', 'straight', 'step', 'rounded'];
+export type EdgeDash = 'solid' | 'dashed' | 'dotted';
+export const EDGE_DASHES: readonly EdgeDash[] = ['solid', 'dashed', 'dotted'];
+/** What is drawn at an end of a link. */
+export type EdgeMarker = 'none' | 'arrow' | 'open-arrow' | 'circle' | 'diamond';
+export const EDGE_MARKERS: readonly EdgeMarker[] = ['none', 'arrow', 'open-arrow', 'circle', 'diamond'];
+
+/** A link between two nodes (any kind), attached to a side of each; undefined sides are picked from the layout. */
 export interface WorkspaceEdge {
   id: string;
   source: string;
   target: string;
+  sourceSide?: Side;
+  targetSide?: Side;
+  /** Undefined = `DEFAULT_EDGE_PATH`. */
+  path?: EdgePath;
+  /** Line color; undefined = the canvas's text color. */
+  color?: string;
+  /** Line thickness in px; undefined = `DEFAULT_EDGE_WIDTH`. */
+  width?: number;
+  dash?: EdgeDash;
+  /** Undefined = no marker at the start, an arrow at the end. */
+  startMarker?: EdgeMarker;
+  endMarker?: EdgeMarker;
+  label?: string;
+  /** Label color; undefined = the line color. */
+  labelColor?: string;
+  fontSize?: number;
+  fontWeight?: number;
 }
 
 export interface WorkspaceFile {
@@ -173,6 +203,14 @@ export const DEFAULT_FONT_WEIGHT = 400;
 /** Default canvas background (editable in the config panel). */
 export const DEFAULT_CANVAS_BACKGROUND = '#e4e5e8';
 export const DEFAULT_TEXT_FONT_SIZE = 18;
+export const DEFAULT_EDGE_PATH: EdgePath = 'curve';
+export const DEFAULT_EDGE_WIDTH = 2;
+export const DEFAULT_START_MARKER: EdgeMarker = 'none';
+export const DEFAULT_END_MARKER: EdgeMarker = 'arrow';
+export const DEFAULT_EDGE_FONT_SIZE = 14;
+/** Line thicknesses offered in the link toolbar. */
+export const EDGE_WIDTHS = [1, 2, 3, 4, 6, 8] as const;
+export const EDGE_WIDTH_CEILING = 20;
 export const DEFAULT_NOTE_FONT_SIZE = 14;
 /** Swatches of the color picker: a muted dark row and a light pastel row. */
 export const PALETTE = {
@@ -435,12 +473,63 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
   }
   const nodes = parentsFirst<WorkspaceNode>([...boxes, ...liveEditors], (n) => n.parent); // React Flow requirement
   const ids = new Set(nodes.map((n) => n.id));
-  const edges = Array.isArray(obj.edges)
-    ? obj.edges.filter(
-        (e): e is WorkspaceEdge => !!e && typeof e.id === 'string' && ids.has(e.source) && ids.has(e.target),
-      )
-    : [];
+  const edges: WorkspaceEdge[] = [];
+  for (const e of Array.isArray(obj.edges) ? obj.edges : []) {
+    if (!e || typeof e !== 'object' || typeof e.id !== 'string' || !ids.has(e.source) || !ids.has(e.target)) continue;
+    edges.push(parseEdge(e));
+  }
   return { workspace: { version: WORKSPACE_VERSION, nodes, edges } };
+}
+
+function oneOf<T extends string>(values: readonly T[], v: unknown): T | undefined {
+  return values.includes(v as T) ? (v as T) : undefined;
+}
+
+function parseEdge(e: Record<string, any>): WorkspaceEdge {
+  const width = Number(e.width);
+  const fontSize = Math.round(Number(e.fontSize));
+  const fontWeight = Math.round(Number(e.fontWeight) / 100) * 100;
+  return {
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    sourceSide: oneOf(SIDES, e.sourceSide),
+    targetSide: oneOf(SIDES, e.targetSide),
+    path: oneOf(EDGE_PATHS, e.path),
+    color: color(e.color),
+    width: Number.isFinite(width) && width > 0 ? Math.min(EDGE_WIDTH_CEILING, width) : undefined,
+    dash: oneOf(EDGE_DASHES, e.dash),
+    startMarker: oneOf(EDGE_MARKERS, e.startMarker),
+    endMarker: oneOf(EDGE_MARKERS, e.endMarker),
+    label: typeof e.label === 'string' && e.label ? e.label : undefined,
+    labelColor: color(e.labelColor),
+    fontSize: fontSize > 0 ? fontSize : undefined,
+    fontWeight: fontWeight >= 100 && fontWeight <= 900 ? fontWeight : undefined,
+  };
+}
+
+/** Fixed key order; unset and default values are left out so files stay small and diffs readable. */
+function serializeEdge(e: WorkspaceEdge) {
+  const unlessDefault = <T>(v: T | undefined, fallback: T) => (v !== fallback ? v : undefined);
+  const out: Record<string, unknown> = {
+    id: e.id,
+    source: e.source,
+    sourceSide: e.sourceSide,
+    target: e.target,
+    targetSide: e.targetSide,
+    path: unlessDefault(e.path, DEFAULT_EDGE_PATH),
+    color: e.color,
+    width: unlessDefault(e.width, DEFAULT_EDGE_WIDTH),
+    dash: unlessDefault(e.dash, 'solid'),
+    startMarker: unlessDefault(e.startMarker, DEFAULT_START_MARKER),
+    endMarker: unlessDefault(e.endMarker, DEFAULT_END_MARKER),
+    label: e.label || undefined,
+    labelColor: e.labelColor,
+    fontSize: e.fontSize,
+    fontWeight: e.fontWeight,
+  };
+  for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
+  return out;
 }
 
 /** v1 stored one flat `code` node per range; it becomes a file node with a single targeted editor. */
@@ -530,7 +619,7 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
           };
       }
     }),
-    edges: workspace.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+    edges: workspace.edges.map(serializeEdge),
   };
   return JSON.stringify(out, null, 2) + '\n';
 }

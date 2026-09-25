@@ -5,6 +5,10 @@
   "version": "0.1.0",
   "publisher": "paper-workspace",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/brucegroverlee/paper-workspace.git"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },

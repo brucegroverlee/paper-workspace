@@ -125,14 +125,29 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
   for the node's pixel size, so outlines and corner radii do not stretch when resized. `color` = fill (`"none"` = no
   fill), `strokeColor` = outline, `textColor` = label (automatic contrast when unset), plus `fontSize`/`fontWeight`.
   Click a shape in the panel to add it at the view center, or drag it onto the canvas; either way it joins the group
-  under its center. Double-click to edit the label. Connecting shapes with lines is the next step (links).
+  under its center. Double-click to edit the label.
+* **Links** (`edges`): a line between any two nodes (files, snippets, groups, text, notes, shapes, media), from a side of
+  one to a side of the other. Every node has a handle on each side (shown on hover); drag from one onto another node's
+  handle, or onto its body to use the side facing the pointer. Dragging a link's end reconnects it. Selecting a link
+  shows its toolbar: line color, thickness, solid/dashed/dotted, path (`curve`, `straight`, `step` = elbow,
+  `rounded` = rounded elbow), a marker at each end (`none`, `arrow`, `open-arrow`, `circle`, `diamond`), reverse, and
+  the label's text, color, size and weight (double-click the link to write the label). Only non-default values are
+  stored; a link without sides uses the sides facing each other. A link to an embedded editor (a file with one
+  snippet) is drawn from its file node. Links between copied nodes are copied with them; removing a node removes its
+  links.
+
+  ```json
+  { "id": "l_1", "source": "e_1", "sourceSide": "right", "target": "s_1", "targetSide": "left",
+    "path": "rounded", "color": "#27405f", "width": 3, "dash": "dashed", "startMarker": "circle",
+    "label": "calls", "fontSize": 16, "fontWeight": 600 }
+  ```
 * **Media**: images and videos. Picked files inside the paper root are referenced; files outside it, pasted and
   dropped bytes are written to `.paperworkspace/media/`. The webview reads them through `mediaRoot` (the root is a
   `localResourceRoot`).
 * Colors come from a fixed palette (dark and pastel rows) or a custom color, edited from the toolbar shown above the
   selected node.
 
-Readers ignore unknown node types, so later kinds and `edges`/`layers` can be added without breaking older files.
+Readers ignore unknown node types and link fields, so later kinds and `layers` can be added without breaking older files.
 The viewport is per-user UI state (webview `setState`), not stored in the file.
 
 ## Modes (side panel)
@@ -146,7 +161,7 @@ The viewport is per-user UI state (webview `setState`), not stored in the file.
 ## Roadmap
 
 1. **Core canvas + file nodes** — done (this milestone).
-2. Links between papers (optionally anchored to lines). Groups, text, notes and media — done.
+2. Links between nodes — done (anchoring a link to lines of code is still open). Groups, text, notes and media — done.
 3. Layers panel (show/hide/lock/reorder), image nodes, text notes.
 4. Import-based link suggestions.
 5. Language features inside papers by proxying `vscode.executeCompletionItemProvider` / hover / definition.
