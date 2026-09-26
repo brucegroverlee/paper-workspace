@@ -75,6 +75,7 @@ const COMMIT_DELAY = 250;
 
 interface PersistedState {
   viewport?: Viewport;
+  minimap?: boolean;
 }
 
 const isEditor = (n: RFNode): n is RFEditorNode => n.type === 'editor';
@@ -440,6 +441,7 @@ export function App() {
   const commitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pendingReveal = useRef<string | null>(null);
   const initialViewport = useMemo(() => host.getState<PersistedState>()?.viewport, []);
+  const [minimap, setMinimap] = useState(() => host.getState<PersistedState>()?.minimap ?? true);
   if (__HARNESS__) (window as any).__rf = rf;
 
   // ---- persistence -------------------------------------------------------------------------------
@@ -1191,9 +1193,15 @@ export function App() {
 
   // ---- viewport ----------------------------------------------------------------------------------
 
+  const toggleMinimap = useCallback(() => {
+    const next = !minimap;
+    setMinimap(next);
+    host.setState<PersistedState>({ ...host.getState<PersistedState>(), minimap: next });
+  }, [minimap]);
+
   const reportViewport = useCallback(
     (vp: Viewport) => {
-      host.setState<PersistedState>({ viewport: vp });
+      host.setState<PersistedState>({ ...host.getState<PersistedState>(), viewport: vp });
       const center = rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
       host.postMessage({ type: 'viewport', center, zoom: vp.zoom });
     },
@@ -1292,7 +1300,7 @@ export function App() {
           colorMode={document.body.classList.contains('vscode-light') ? 'light' : 'dark'}
         >
           <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} />
-          <MiniMap pannable zoomable position="bottom-right" nodeBorderRadius={8} />
+          {minimap && <MiniMap pannable zoomable position="bottom-right" nodeBorderRadius={8} />}
           {resizingId && <ResizeBadge id={resizingId} />}
         </ReactFlow>
         <Toolbar
@@ -1305,6 +1313,8 @@ export function App() {
           configOpen={panel === 'config'}
           onConfig={() => togglePanel('config')}
           onViewSource={() => host.postMessage({ type: 'viewSource' })}
+          minimapOpen={minimap}
+          onMinimap={toggleMinimap}
         />
         {panel === 'config' && <ConfigPanel config={config} onChange={changeConfig} onClose={() => setPanel(null)} />}
         {panel === 'shapes' && <ShapesPanel onAdd={(shape) => addShape(shape)} onClose={() => setPanel(null)} />}

@@ -29,6 +29,8 @@ export function Toolbar(props: {
   configOpen: boolean;
   onConfig(): void;
   onViewSource(): void;
+  minimapOpen: boolean;
+  onMinimap(): void;
 }) {
   const rf = useReactFlow();
   const zoom = useStore((s) => s.transform[2]);
@@ -60,6 +62,7 @@ export function Toolbar(props: {
       </div>
       <div className="pw-tool-group">
         <ToolButton icon="file-code" label="View the workspace file's source" onClick={props.onViewSource} />
+        <ToolButton icon="map" label={props.minimapOpen ? 'Hide the minimap' : 'Show the minimap'} active={props.minimapOpen} onClick={props.onMinimap} />
         <ToolButton icon="settings-gear" label="Configuration" active={props.configOpen} onClick={props.onConfig} />
         <ToolButton icon="question" label="Help & shortcuts" onClick={props.onHelp} />
       </div>
