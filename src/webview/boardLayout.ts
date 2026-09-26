@@ -1,6 +1,6 @@
 // Tree helpers for React Flow nodes nested in groups (positions of children are relative to their parent).
 // Pure functions over minimal node shapes so they can be unit tested without React Flow.
-import { GROUP_HEADER_HEIGHT, GROUP_PADDING, type XY } from '../shared/workspace';
+import { GROUP_PADDING, groupHeaderHeight, type XY } from '../shared/workspace';
 
 export interface TreeNode {
   id: string;
@@ -12,6 +12,15 @@ export interface TreeNode {
   measured?: { width?: number; height?: number };
   hidden?: boolean;
   zIndex?: number;
+  /** A group's data; its title font size and position decide where its title bar is. */
+  data?: object;
+}
+
+/** Room a group's title bar takes at its top and bottom edges. */
+export function titleBarOf(n: TreeNode) {
+  const d = (n.data ?? {}) as { fontSize?: number; titlePosition?: string };
+  const h = groupHeaderHeight(d.fontSize);
+  return d.titlePosition?.startsWith('bottom') ? { top: 0, bottom: h } : { top: h, bottom: 0 };
 }
 
 export const sizeOf = (n: TreeNode) => ({ width: n.width ?? n.measured?.width ?? 0, height: n.height ?? n.measured?.height ?? 0 });
@@ -86,8 +95,8 @@ export function dropNodes<T extends TreeNode>(ns: T[], ids: Set<string>): T[] {
 }
 
 /**
- * Grow groups so their children fit: a child sticking out on the left or over the title bar moves the group
- * (children keep their place on screen); sticking out right or below grows it. Deepest groups first, so a
+ * Grow groups so their children fit: a child sticking out on the left or over a top title bar moves the group
+ * (children keep their place on screen); sticking out right or below (or over a bottom title bar) grows it. Deepest groups first, so a
  * grown group can grow its own parent.
  */
 export function fitGroups<T extends TreeNode>(ns: T[]): T[] {
@@ -111,9 +120,10 @@ export function fitGroups<T extends TreeNode>(ns: T[]): T[] {
     const maxX = Math.max(...kids.map((k) => k.position.x + sizeOf(k).width));
     const maxY = Math.max(...kids.map((k) => k.position.y + sizeOf(k).height));
     const dx = minX < 0 ? GROUP_PADDING - minX : 0;
-    const dy = minY < GROUP_HEADER_HEIGHT ? GROUP_HEADER_HEIGHT + GROUP_PADDING / 2 - minY : 0;
+    const bar = titleBarOf(g);
+    const dy = minY < bar.top ? bar.top + GROUP_PADDING / 2 - minY : 0;
     const w = (maxX > width ? maxX + GROUP_PADDING : width) + dx;
-    const h = (maxY > height ? maxY + GROUP_PADDING : height) + dy;
+    const h = (maxY > height - bar.bottom ? maxY + (bar.bottom ? bar.bottom + GROUP_PADDING / 2 : GROUP_PADDING) : height) + dy;
     if (!dx && !dy && w === width && h === height) continue;
     out = out.map((n) => {
       if (n.id === id) return { ...n, position: { x: n.position.x - dx, y: n.position.y - dy }, width: w, height: h, measured: { width: w, height: h } };

@@ -62,12 +62,33 @@ export interface GroupNode {
   title: string;
   /** Background color (`#rrggbb`); undefined = the theme's paper color. */
   color?: string;
+  /** Title color; undefined = dark or light, whichever reads best on the background. */
+  textColor?: string;
+  /** Title font size; undefined = `DEFAULT_GROUP_FONT_SIZE`. */
+  fontSize?: number;
+  /** Title font weight; undefined = `DEFAULT_GROUP_FONT_WEIGHT`. */
+  fontWeight?: number;
+  /** Where the title sits; undefined = `'top-left'`. */
+  titlePosition?: GroupTitlePosition;
+  /** Border color; undefined = a shade of the background color. */
+  strokeColor?: string;
+  /** Border thickness in px; undefined = `DEFAULT_GROUP_BORDER_WIDTH`. */
+  strokeWidth?: number;
+  /** Border line style; undefined = `'solid'`. */
+  strokeStyle?: GroupBorderStyle;
   /** Caption shown centered below the box; undefined = no annotation (the default), `''` = shown but still empty. */
   annotation?: string;
   position: XY;
   width: number;
   height: number;
 }
+
+export type GroupTitlePosition = 'top-left' | 'top-center' | 'top-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
+export const GROUP_TITLE_POSITIONS: readonly GroupTitlePosition[] = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+export type GroupBorderStyle = 'solid' | 'dashed' | 'dotted' | 'none';
+export const GROUP_BORDER_STYLES: readonly GroupBorderStyle[] = ['solid', 'dashed', 'dotted', 'none'];
+export const GROUP_BORDER_WIDTHS = [1, 1.5, 2, 3, 4, 6] as const;
+export const DEFAULT_GROUP_BORDER_WIDTH = 1.5;
 
 /** Free text without a background (`text`) or a sticky note (`note`). */
 export interface TextNode {
@@ -161,6 +182,8 @@ export interface WorkspaceEdge {
   label?: string;
   /** Label color; undefined = the line color. */
   labelColor?: string;
+  /** Box behind the label; `'none'` = transparent (the line shows through); undefined = the canvas background. */
+  labelBackground?: string;
   fontSize?: number;
   fontWeight?: number;
 }
@@ -191,6 +214,10 @@ export const DEFAULT_FOCUS_PERCENT = 80;
 export const FOCUS_PERCENT_FLOOR = 10;
 export const FOCUS_PERCENT_CEILING = 100;
 export const GROUP_HEADER_HEIGHT = 36;
+export const DEFAULT_GROUP_FONT_SIZE = 14;
+export const DEFAULT_GROUP_FONT_WEIGHT = 600;
+/** Height of a group's title bar: the default bar, taller when the title font needs it. */
+export const groupHeaderHeight = (fontSize = DEFAULT_GROUP_FONT_SIZE) => Math.max(GROUP_HEADER_HEIGHT, Math.ceil(fontSize * 1.25) + 18);
 export const GROUP_PADDING = 16;
 export const DEFAULT_GROUP_SIZE = { width: 480, height: 320 };
 export const DEFAULT_TEXT_SIZE = { width: 240, height: 40 };
@@ -415,7 +442,24 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
       files.push(f);
       boxes.push(f);
     } else if (n.type === 'group') {
-      boxes.push({ ...box, type: 'group', title: typeof n.title === 'string' ? n.title : '', color: color(n.color), annotation, ...size(DEFAULT_GROUP_SIZE) });
+      const fontSize = Math.round(Number(n.fontSize));
+      const fontWeight = Math.round(Number(n.fontWeight) / 100) * 100;
+      const strokeWidth = Math.min(20, Math.round(Number(n.strokeWidth) * 2) / 2);
+      boxes.push({
+        ...box,
+        type: 'group',
+        title: typeof n.title === 'string' ? n.title : '',
+        color: color(n.color),
+        textColor: color(n.textColor),
+        fontSize: fontSize > 0 ? fontSize : undefined,
+        fontWeight: fontWeight >= 100 && fontWeight <= 900 ? fontWeight : undefined,
+        titlePosition: n.titlePosition === 'top-left' ? undefined : oneOf(GROUP_TITLE_POSITIONS, n.titlePosition),
+        strokeColor: color(n.strokeColor),
+        strokeWidth: strokeWidth > 0 && strokeWidth !== DEFAULT_GROUP_BORDER_WIDTH ? strokeWidth : undefined,
+        strokeStyle: n.strokeStyle === 'solid' ? undefined : oneOf(GROUP_BORDER_STYLES, n.strokeStyle),
+        annotation,
+        ...size(DEFAULT_GROUP_SIZE),
+      });
     } else if (n.type === 'text' || n.type === 'note') {
       const fontSize = Math.round(Number(n.fontSize));
       const fontWeight = Math.round(Number(n.fontWeight) / 100) * 100;
@@ -526,6 +570,7 @@ function parseEdge(e: Record<string, any>): WorkspaceEdge {
     endMarker: oneOf(EDGE_MARKERS, e.endMarker),
     label: typeof e.label === 'string' && e.label ? e.label : undefined,
     labelColor: color(e.labelColor),
+    labelBackground: e.labelBackground === 'none' ? 'none' : color(e.labelBackground),
     fontSize: fontSize > 0 ? fontSize : undefined,
     fontWeight: fontWeight >= 100 && fontWeight <= 900 ? fontWeight : undefined,
   };
@@ -548,6 +593,7 @@ function serializeEdge(e: WorkspaceEdge) {
     endMarker: unlessDefault(e.endMarker, DEFAULT_END_MARKER),
     label: e.label || undefined,
     labelColor: e.labelColor,
+    labelBackground: e.labelBackground,
     fontSize: e.fontSize,
     fontWeight: e.fontWeight,
   };
@@ -606,7 +652,20 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
         case 'file':
           return { ...head(n), file: n.file, ...annotation(n), ...rect(n) };
         case 'group':
-          return { ...head(n), title: n.title, ...(n.color ? { color: n.color } : {}), ...annotation(n), ...rect(n) };
+          return {
+            ...head(n),
+            title: n.title,
+            ...(n.color ? { color: n.color } : {}),
+            ...(n.textColor ? { textColor: n.textColor } : {}),
+            ...(n.fontSize ? { fontSize: n.fontSize } : {}),
+            ...(n.fontWeight ? { fontWeight: n.fontWeight } : {}),
+            ...(n.titlePosition && n.titlePosition !== 'top-left' ? { titlePosition: n.titlePosition } : {}),
+            ...(n.strokeColor ? { strokeColor: n.strokeColor } : {}),
+            ...(n.strokeWidth && n.strokeWidth !== DEFAULT_GROUP_BORDER_WIDTH ? { strokeWidth: n.strokeWidth } : {}),
+            ...(n.strokeStyle && n.strokeStyle !== 'solid' ? { strokeStyle: n.strokeStyle } : {}),
+            ...annotation(n),
+            ...rect(n),
+          };
         case 'text':
         case 'note':
           return {

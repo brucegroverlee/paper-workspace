@@ -1,6 +1,6 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 import type { Edge, Node } from '@xyflow/react';
-import type { LineRange, WorkspaceEdge } from '../shared/workspace';
+import type { GroupBorderStyle, GroupTitlePosition, LineRange, WorkspaceEdge } from '../shared/workspace';
 import type { CanvasConfig, EditorSettings } from '../shared/protocol';
 import { docStore } from './docStore';
 
@@ -13,7 +13,18 @@ export type EditorNodeData = {
   annotation?: string;
 };
 
-export type GroupNodeData = { title: string; color?: string; annotation?: string };
+export type GroupNodeData = {
+  title: string;
+  color?: string;
+  textColor?: string;
+  fontSize?: number;
+  fontWeight?: number;
+  titlePosition?: GroupTitlePosition;
+  strokeColor?: string;
+  strokeWidth?: number;
+  strokeStyle?: GroupBorderStyle;
+  annotation?: string;
+};
 export type TextNodeData = { text: string; color?: string; textColor?: string; fontSize?: number; fontWeight?: number };
 export type MediaNodeData = { src: string; annotation?: string };
 export type ShapeNodeData = {

@@ -46,7 +46,7 @@ Readers must skip kinds they don't recognize.
 |---|---|---|
 | `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?` |
 | `editor` | A live code editor over the whole file, scrolled to a **target** line range. It always lives inside a `file`. | `parent` (**required**, the file node id), `target? {start,end}`, `anchor?`, `annotation?` |
-| `group` | A titled, colored area. Any box (file, text, note, shape, media, group) can sit inside it. | `title`, `color?`, `annotation?` |
+| `group` | A titled, colored area. Any box (file, text, note, shape, media, group) can sit inside it. | `title`, `color?`, `textColor?`, `fontSize?`, `fontWeight?`, `titlePosition?`, `strokeColor?`, `strokeWidth?`, `strokeStyle?`, `annotation?` |
 | `shape` | A diagram shape with a label (see the shape list below). | `shape`, `text`, `color?`, `strokeColor?`, `textColor?`, `fontSize?`, `fontWeight?`, `annotation?` |
 | `note` | A sticky note, plain text on a colored square. | `text`, `color?` (background, default `#ffec99`), `textColor?`, `fontSize?` (default 14), `fontWeight?` |
 | `text` | Free text with no background (titles, headings, labels). | `text`, `color?` (text color), `fontSize?` (default 18), `fontWeight?` |
@@ -105,6 +105,14 @@ A group has a 36px title bar and 16px of padding, so its first child usually sit
 must be big enough to hold its children: `width >= child.x + child.width + 16` and
 `height >= child.y + child.height + 16`, plus 30 more if the child has an annotation. Groups can be nested.
 
+The title can be styled: `textColor`, `fontSize` (default 14) and `fontWeight` (default 600), and `titlePosition`
+places it at `top-left` (default), `top-center`, `top-right`, `bottom-left`, `bottom-center` or `bottom-right`. A
+title bigger than 14px makes the bar taller: `max(36, ceil(fontSize × 1.25) + 18)`. A bottom title bar takes that
+room at the bottom instead, so children can start at `y: 16`.
+
+The border can be styled too: `strokeColor` (default: a shade of the background), `strokeWidth` in px (default 1.5)
+and `strokeStyle`: `solid` (default), `dashed`, `dotted` or `none`.
+
 ### Edges (arrows)
 
 ```jsonc
@@ -120,8 +128,9 @@ must be big enough to hold its children: `width >= child.x + child.width + 16` a
   "dash": "solid",                  // solid (default) | dashed | dotted
   "startMarker": "none",            // none (default) | arrow | open-arrow | circle | diamond
   "endMarker": "arrow",             // arrow is the default
-  "label": "calls",                 // optional text on the line
-  "labelColor": "#...", "fontSize": 14, "fontWeight": 600
+  "label": "calls",                 // optional text on the line; long labels wrap, "\n" breaks a line
+  "labelColor": "#...", "fontSize": 14, "fontWeight": 600,
+  "labelBackground": "#ffec99"      // box behind the label; "none" = transparent; default: canvas background
 }
 ```
 

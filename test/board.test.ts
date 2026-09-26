@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GROUP_HEADER_HEIGHT, GROUP_PADDING, canvasBackgroundOf, clampFontSize, isLightColor, mediaSizeFor, parseWorkspace, serializeWorkspace } from '../src/shared/workspace';
+import { GROUP_HEADER_HEIGHT, GROUP_PADDING, canvasBackgroundOf, groupHeaderHeight, clampFontSize, isLightColor, mediaSizeFor, parseWorkspace, serializeWorkspace } from '../src/shared/workspace';
 import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, reparent, type TreeNode } from '../src/webview/boardLayout';
 
 const ids = (ns: { id: string }[]) => ns.map((n) => n.id).join(',');
@@ -33,6 +33,46 @@ describe('board nodes in the .workspace format', () => {
     const once = serializeWorkspace(parseWorkspace(JSON.stringify(raw)).workspace);
     expect(serializeWorkspace(parseWorkspace(once).workspace)).toBe(once);
     expect(JSON.parse(once).nodes.find((n: any) => n.id === 't')).not.toHaveProperty('parent');
+  });
+
+  it('parses and round-trips group title styles, dropping defaults and invalid values', () => {
+    const text = JSON.stringify({
+      nodes: [
+        { id: 'a', type: 'group', title: 'A', textColor: '#FF0000', fontSize: 40, fontWeight: 800, titlePosition: 'bottom-center' },
+        { id: 'b', type: 'group', title: 'B', textColor: 'red', fontSize: -3, fontWeight: 'x', titlePosition: 'middle' },
+        { id: 'c', type: 'group', title: 'C', titlePosition: 'top-left' },
+      ],
+    });
+    const { workspace } = parseWorkspace(text);
+    expect(workspace.nodes[0]).toMatchObject({ textColor: '#ff0000', fontSize: 40, fontWeight: 800, titlePosition: 'bottom-center' });
+    expect(workspace.nodes[1]).toMatchObject({ textColor: undefined, fontSize: undefined, fontWeight: undefined, titlePosition: undefined });
+    const out = JSON.parse(serializeWorkspace(workspace)).nodes;
+    expect(out[0]).toMatchObject({ textColor: '#ff0000', fontSize: 40, fontWeight: 800, titlePosition: 'bottom-center' });
+    for (const key of ['textColor', 'fontSize', 'fontWeight', 'titlePosition']) {
+      expect(out[1]).not.toHaveProperty(key);
+      expect(out[2]).not.toHaveProperty(key);
+    }
+  });
+
+  it('parses and round-trips group borders, dropping defaults and invalid values', () => {
+    const text = JSON.stringify({
+      nodes: [
+        { id: 'a', type: 'group', title: 'A', strokeColor: '#00FF00', strokeWidth: 3, strokeStyle: 'dashed' },
+        { id: 'b', type: 'group', title: 'B', strokeColor: 'green', strokeWidth: -1, strokeStyle: 'wavy' },
+        { id: 'c', type: 'group', title: 'C', strokeWidth: 1.5, strokeStyle: 'solid' },
+        { id: 'd', type: 'group', title: 'D', strokeWidth: 99, strokeStyle: 'none' },
+      ],
+    });
+    const { workspace } = parseWorkspace(text);
+    expect(workspace.nodes[0]).toMatchObject({ strokeColor: '#00ff00', strokeWidth: 3, strokeStyle: 'dashed' });
+    expect(workspace.nodes[1]).toMatchObject({ strokeColor: undefined, strokeWidth: undefined, strokeStyle: undefined });
+    expect(workspace.nodes[3]).toMatchObject({ strokeWidth: 20, strokeStyle: 'none' });
+    const out = JSON.parse(serializeWorkspace(workspace)).nodes;
+    expect(out[0]).toMatchObject({ strokeColor: '#00ff00', strokeWidth: 3, strokeStyle: 'dashed' });
+    for (const key of ['strokeColor', 'strokeWidth', 'strokeStyle']) {
+      expect(out[1]).not.toHaveProperty(key);
+      expect(out[2]).not.toHaveProperty(key);
+    }
   });
 
   it('clamps typed font sizes and validates the canvas background', () => {
@@ -122,6 +162,26 @@ describe('group layout helpers', () => {
     expect(g.width).toBe(330 + GROUP_PADDING + dx);
     expect(g.height).toBe(240 + GROUP_PADDING + dy);
     expect(fitGroups(out)).toBe(out);
+  });
+
+  it('keeps content clear of a big title bar, at the top or at the bottom', () => {
+    const bar = groupHeaderHeight(40);
+    expect(bar).toBeGreaterThan(GROUP_HEADER_HEIGHT);
+    const top = tree();
+    top[0] = { ...top[0], data: { fontSize: 40 } };
+    const g = fitGroups(top).find((n) => n.id === 'g')!;
+    expect(g.position.y).toBe(100 - (bar + GROUP_PADDING / 2 - 50));
+
+    const bottom = tree();
+    bottom[0] = { ...bottom[0], data: { fontSize: 40, titlePosition: 'bottom-left' } };
+    bottom[1] = { ...bottom[1], position: { x: 20, y: 140 } }; // bottom edge at 190, over the bar
+    const out = fitGroups(bottom);
+    const gb = out.find((n) => n.id === 'g')!;
+    expect(gb.position).toEqual({ x: 100, y: 100 });
+    expect(gb.height).toBe(190 + bar + GROUP_PADDING / 2);
+    expect(fitGroups(out)).toBe(out);
+    // Without a top bar, content may sit near the top edge.
+    expect(fitGroups(tree().map((n) => (n.id === 'g' ? { ...n, data: { titlePosition: 'bottom-right' } } : n.id === 'a' ? { ...n, position: { x: 20, y: 10 } } : n)))[0].position).toEqual({ x: 100, y: 100 });
   });
 
   it('orders parents before children and stacks content above its group', () => {

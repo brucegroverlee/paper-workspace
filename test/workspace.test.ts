@@ -104,7 +104,7 @@ describe('parseWorkspace / serializeWorkspace', () => {
           { id: 'plain', source: 's1', target: 's2' },
           {
             id: 'styled', source: 's1', sourceSide: 'right', target: 's2', targetSide: 'middle', path: 'rounded', color: '#FF0000',
-            width: 4, dash: 'dotted', startMarker: 'circle', endMarker: 'none', label: 'calls', labelColor: 'red', fontSize: 18, fontWeight: 650,
+            width: 4, dash: 'dotted', startMarker: 'circle', endMarker: 'none', label: 'calls', labelColor: 'red', labelBackground: 'none', fontSize: 18, fontWeight: 650,
           },
           { id: 'defaults', source: 's2', target: 's1', path: 'curve', width: 2, dash: 'solid', startMarker: 'none', endMarker: 'arrow', label: '' },
         ],
@@ -113,7 +113,7 @@ describe('parseWorkspace / serializeWorkspace', () => {
     expect(workspace.edges[0]).toEqual({ id: 'plain', source: 's1', target: 's2' });
     expect(workspace.edges[1]).toEqual({
       id: 'styled', source: 's1', sourceSide: 'right', target: 's2', path: 'rounded', color: '#ff0000',
-      width: 4, dash: 'dotted', startMarker: 'circle', endMarker: 'none', label: 'calls', fontSize: 18, fontWeight: 700,
+      width: 4, dash: 'dotted', startMarker: 'circle', endMarker: 'none', label: 'calls', labelBackground: 'none', fontSize: 18, fontWeight: 700,
     });
     const saved = JSON.parse(serializeWorkspace(workspace)).edges;
     // `endMarker: 'none'` differs from the default arrow, so it is kept; default values are not written.

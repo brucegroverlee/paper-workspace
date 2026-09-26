@@ -1,6 +1,6 @@
 // Links between nodes: a line, curve or elbow from a side of one node to a side of another, with optional arrow
 // heads, dashes and a label. Selecting a link shows a toolbar to style it.
-import { memo, useCallback, useState, type CSSProperties } from 'react';
+import { memo, useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { BaseEdge, EdgeLabelRenderer, Position, getBezierPath, getSmoothStepPath, getStraightPath, useStore, type EdgeProps } from '@xyflow/react';
 import {
@@ -120,6 +120,14 @@ export const LinkEdge = memo(function LinkEdge(props: EdgeProps<RFEdge>) {
   const markerId = `pw-link-${id.replace(/[^\w-]/g, '_')}`;
   const fontSize = data.fontSize ?? DEFAULT_EDGE_FONT_SIZE;
   const fontWeight = data.fontWeight ?? DEFAULT_FONT_WEIGHT;
+  // Labels live in a layer below every link and node; lifting a label to its link's z-index paints it over its own
+  // line and every other link at that level, while nodes above the link still cover it.
+  const zIndex = useStore((s) => s.edgeLookup.get(id)?.zIndex ?? 0);
+  const background = data.labelBackground === 'none' ? 'transparent' : data.labelBackground;
+  // The toolbar sits above the label, which can wrap to several lines.
+  const labelRef = useRef<HTMLDivElement>(null);
+  const [labelHeight, setLabelHeight] = useState(0);
+  useLayoutEffect(() => setLabelHeight(labelRef.current?.offsetHeight ?? 0), [data.label, data.labelBackground, fontSize, fontWeight, selected]);
 
   const finish = (text: string) => {
     setEditing(false);
@@ -152,14 +160,22 @@ export const LinkEdge = memo(function LinkEdge(props: EdgeProps<RFEdge>) {
       {(data.label || editing) && (
         <EdgeLabelRenderer>
           <div
-            className={`pw-link-label nodrag nopan${editing ? ' editing' : ''}`}
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, color: data.labelColor ?? color, fontSize, fontWeight }}
+            ref={labelRef}
+            className={`pw-link-label nodrag nopan${editing ? ' editing' : ''}${data.labelBackground && data.labelBackground !== 'none' ? ' boxed' : ''}`}
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              zIndex,
+              color: data.labelColor ?? color,
+              background,
+              fontSize,
+              fontWeight,
+            }}
           >
             {editing ? <TextEditor value={data.label ?? ''} onDone={finish} /> : data.label}
           </div>
         </EdgeLabelRenderer>
       )}
-      {selected && !editing && <LinkToolbar id={id} data={data} x={labelX} y={labelY} lift={data.label ? fontSize * 0.7 + 4 : 0} onEditLabel={() => setEditing(true)} />}
+      {selected && !editing && <LinkToolbar id={id} data={data} x={labelX} y={labelY} lift={data.label ? labelHeight / 2 : 0} onEditLabel={() => setEditing(true)} />}
     </g>
   );
 });
@@ -225,7 +241,7 @@ function MarkerIcon(props: { kind: EdgeMarker; atStart: boolean }) {
   );
 }
 
-type Popup = 'color' | 'labelColor' | 'width' | 'dash' | 'path' | 'start' | 'end' | 'size' | 'weight';
+type Popup = 'color' | 'labelColor' | 'labelBackground' | 'width' | 'dash' | 'path' | 'start' | 'end' | 'size' | 'weight';
 
 /** Only while this link is the whole selection, so a box selection doesn't pop toolbars up everywhere. */
 const onlyOneLinkSelected = (s: { nodes: { selected?: boolean }[]; edges: { selected?: boolean }[] }) => {
@@ -259,7 +275,9 @@ function LinkToolbar(props: { id: string; data: LinkData; x: number; y: number; 
       ? { key: 'color' as const, value: data.color }
       : open === 'labelColor'
         ? { key: 'labelColor' as const, value: data.labelColor }
-        : undefined;
+        : open === 'labelBackground'
+          ? { key: 'labelBackground' as const, value: data.labelBackground }
+          : undefined;
   const dropdown = <T extends string | number>(popup: Popup, label: string, value: T, options: Option<T>[], onPick: (v: T) => void) => (
     <Dropdown compact label={label} value={value} options={options} open={open === popup} onToggle={() => toggle(popup)} onClose={close} onPick={onPick} />
   );
@@ -281,6 +299,7 @@ function LinkToolbar(props: { id: string; data: LinkData; x: number; y: number; 
           key={colorSlot.key}
           value={colorSlot.value}
           allowDefault
+          allowNone={colorSlot.key === 'labelBackground'}
           defaultLabel="Automatic"
           onPick={(c) => update({ [colorSlot.key]: c })}
           onClose={close}
@@ -308,6 +327,13 @@ function LinkToolbar(props: { id: string; data: LinkData; x: number; y: number; 
             A
             <span className="pw-text-color-bar" style={{ background: data.labelColor ?? color }} />
           </span>
+        </ToolbarButton>
+        <ToolbarButton label="Label background" active={open === 'labelBackground'} onClick={() => toggle('labelBackground')}>
+          {data.labelBackground && data.labelBackground !== 'none' ? (
+            <span className="pw-swatch-dot" style={{ background: data.labelBackground }} />
+          ) : (
+            <span className="pw-swatch-dot default" />
+          )}
         </ToolbarButton>
         <FontSizeField value={fontSize} open={open === 'size'} onToggle={() => toggle('size')} onClose={close} onPick={(size) => update({ fontSize: size })} />
         <Dropdown

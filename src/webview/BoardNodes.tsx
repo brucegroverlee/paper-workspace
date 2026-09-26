@@ -1,5 +1,5 @@
 // Board nodes: groups (titled, colored areas holding other nodes), floating text, sticky notes, diagram shapes and media.
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { NodeResizer, NodeResizeControl, NodeToolbar, Position, ResizeControlVariant, useStore, type NodeProps } from '@xyflow/react';
 import {
   DEFAULT_NOTE_COLOR,
@@ -9,9 +9,18 @@ import {
   DEFAULT_SHAPE_FONT_SIZE,
   DEFAULT_SHAPE_STROKE,
   DEFAULT_TEXT_FONT_SIZE,
+  DEFAULT_GROUP_FONT_SIZE,
+  DEFAULT_GROUP_FONT_WEIGHT,
   FONT_SIZES,
   FONT_WEIGHTS,
   GROUP_PADDING,
+  GROUP_TITLE_POSITIONS,
+  GROUP_BORDER_STYLES,
+  GROUP_BORDER_WIDTHS,
+  DEFAULT_GROUP_BORDER_WIDTH,
+  type GroupBorderStyle,
+  groupHeaderHeight,
+  type GroupTitlePosition,
   NODE_SIZE_FLOOR,
   PALETTE,
   clampFontSize,
@@ -58,23 +67,49 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: NodePro
   const ctx = useWorkspace();
   const [editing, setEditing] = useEditing(id);
   const extent = useChildrenExtent(id);
-  const style = data.color ? ({ '--pw-group-color': data.color } as CSSProperties) : undefined;
+  const borderStyle = data.strokeStyle ?? 'solid';
+  const borderWidth = data.strokeWidth ?? DEFAULT_GROUP_BORDER_WIDTH;
+  const style = {
+    ...(data.color ? { '--pw-group-color': data.color } : {}),
+    ...(data.strokeColor ? { '--pw-group-line': data.strokeColor } : {}),
+    borderStyle,
+    borderWidth: borderStyle === 'none' ? 0 : borderWidth,
+  } as CSSProperties;
   const tone = data.color ? (isLightColor(data.color) ? ' on-light' : ' on-dark') : '';
+  const fontSize = data.fontSize ?? DEFAULT_GROUP_FONT_SIZE;
+  const fontWeight = data.fontWeight ?? DEFAULT_GROUP_FONT_WEIGHT;
+  const position = data.titlePosition ?? 'top-left';
+  const [vertical, horizontal] = position.split('-');
+  const bar = groupHeaderHeight(fontSize);
+  const titleFont: CSSProperties = { fontSize, fontWeight, color: data.textColor };
 
   return (
     <>
-      <div className={`pw-group${selected ? ' selected' : ''}${data.color ? ' colored' : ''}${tone}`} style={style}>
+      <div className={`pw-group title-${vertical} title-${horizontal}${selected ? ' selected' : ''}${data.color ? ' colored' : ''}${tone}`} style={style}>
         <NodeResizer
           isVisible={selected}
           minWidth={Math.max(ctx.config.minNodeWidth, extent.w)}
-          minHeight={Math.max(ctx.config.minNodeHeight, extent.h)}
+          minHeight={Math.max(ctx.config.minNodeHeight, extent.h + (vertical === 'bottom' ? bar - GROUP_PADDING / 2 : 0))}
           lineClassName="pw-resize-line"
           handleClassName="pw-resize-handle"
         />
-        <BoardToolbar id={id} colors={[{ key: 'color', kind: 'background', value: data.color, allowDefault: true }]} annotation={data.annotation} group />
+        <BoardToolbar
+          id={id}
+          colors={[
+            { key: 'color', kind: 'background', value: data.color, allowDefault: true },
+            { key: 'strokeColor', kind: 'stroke', label: 'Border color', value: data.strokeColor, allowDefault: true },
+            { key: 'textColor', kind: 'text', label: 'Title color', value: data.textColor, allowDefault: true },
+          ]}
+          border={{ width: borderWidth, style: borderStyle }}
+          font={{ size: fontSize, weight: fontWeight, defaultWeight: DEFAULT_GROUP_FONT_WEIGHT }}
+          titlePosition={position}
+          annotation={data.annotation}
+          group
+        />
         <NodeHandles />
         <header
           className="pw-group-header"
+          style={{ height: bar }}
           onDoubleClick={() => setEditing(true)}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -85,13 +120,14 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: NodePro
           {editing ? (
             <TitleInput
               value={data.title}
+              style={titleFont}
               onDone={(title) => {
                 setEditing(false);
                 if (title !== data.title) ctx.updateData(id, { title });
               }}
             />
           ) : (
-            <span className={`pw-group-title${data.title ? '' : ' empty'}`} title="Double-click to rename">
+            <span className={`pw-group-title${data.title ? '' : ' empty'}`} style={data.title ? titleFont : { fontSize }} title="Double-click to rename">
               {data.title || 'Untitled group'}
             </span>
           )}
@@ -102,7 +138,7 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: NodePro
   );
 });
 
-function TitleInput(props: { value: string; onDone(v: string): void }) {
+function TitleInput(props: { value: string; style?: CSSProperties; onDone(v: string): void }) {
   const [v, setV] = useState(props.value);
   const done = useRef(false);
   const finish = (value: string) => {
@@ -113,6 +149,7 @@ function TitleInput(props: { value: string; onDone(v: string): void }) {
   return (
     <input
       className="pw-group-title-input nodrag"
+      style={props.style}
       value={v}
       autoFocus
       placeholder="Group title"
@@ -460,10 +497,48 @@ type ColorSlot = {
   fallback?: string;
 };
 
-type Popup = ColorSlot['key'] | 'size' | 'weight';
+type Popup = ColorSlot['key'] | 'size' | 'weight' | 'titlePosition' | 'borderStyle' | 'borderWidth';
 
-/** Passing `annotation` (the node's current one, even undefined) adds the annotation toggle; text and notes leave it out. */
-function BoardToolbar(props: { id: string; colors?: ColorSlot[]; font?: { size: number; weight: number }; group?: boolean; annotation?: string }) {
+const BORDER_STYLE_LABELS: Record<GroupBorderStyle, string> = { solid: 'Solid', dashed: 'Dashed', dotted: 'Dotted', none: 'No border' };
+
+/** A little box drawn with the border style and thickness. */
+const BorderIcon = ({ style = 'solid', width = 1.5 }: { style?: GroupBorderStyle; width?: number }) => (
+  <span className={`pw-border-icon${style === 'none' ? ' none' : ''}`} style={{ borderStyle: style === 'none' ? 'dashed' : style, borderWidth: Math.min(width, 4) }} />
+);
+
+const BORDER_STYLE_OPTIONS: Option<GroupBorderStyle>[] = GROUP_BORDER_STYLES.map((s) => ({ value: s, label: BORDER_STYLE_LABELS[s], icon: <BorderIcon style={s} /> }));
+const BORDER_WIDTH_OPTIONS: Option<number>[] = GROUP_BORDER_WIDTHS.map((w) => ({ value: w, label: `${w} px`, icon: <BorderIcon width={w} /> }));
+
+const TITLE_POSITION_LABELS: Record<GroupTitlePosition, string> = {
+  'top-left': 'Top left',
+  'top-center': 'Top center',
+  'top-right': 'Top right',
+  'bottom-left': 'Bottom left',
+  'bottom-center': 'Bottom center',
+  'bottom-right': 'Bottom right',
+};
+
+/** A little box with a bar where the title sits. */
+const TitlePositionIcon = ({ position }: { position: GroupTitlePosition }) => (
+  <span className={`pw-title-pos-icon ${position.split('-').map((p) => `title-${p}`).join(' ')}`}>
+    <span />
+  </span>
+);
+
+/**
+ * Passing `annotation` (the node's current one, even undefined) adds the annotation toggle; text and notes leave it out.
+ * `font.defaultWeight` is the weight stored as undefined (default: regular); `titlePosition` adds the group title position picker;
+ * `border` adds border style and thickness pickers after the border color.
+ */
+function BoardToolbar(props: {
+  id: string;
+  colors?: ColorSlot[];
+  font?: { size: number; weight: number; defaultWeight?: number };
+  titlePosition?: GroupTitlePosition;
+  border?: { width: number; style: GroupBorderStyle };
+  group?: boolean;
+  annotation?: string;
+}) {
   const ctx = useWorkspace();
   const [open, setOpen] = useState<Popup | null>(null);
   const toggle = (p: Popup) => setOpen((o) => (o === p ? null : p));
@@ -488,24 +563,53 @@ function BoardToolbar(props: { id: string; colors?: ColorSlot[]; font?: { size: 
       <div className="pw-node-toolbar-bar">
         {props.colors?.map((c) => {
           const shown = c.value === 'none' ? undefined : c.value ?? c.fallback;
+          const border = c.kind === 'stroke' && props.border;
           return (
-            <ToolbarButton
-              key={c.key}
-              label={c.label ?? (c.kind === 'text' ? 'Text color' : 'Background color')}
-              active={open === c.key}
-              onClick={() => toggle(c.key)}
-            >
-              {c.kind === 'text' ? (
-                <span className="pw-text-color-icon">
-                  A
-                  <span className={`pw-text-color-bar${shown ? '' : ' default'}`} style={shown ? { background: shown } : undefined} />
-                </span>
-              ) : c.kind === 'stroke' ? (
-                <span className="pw-stroke-icon" style={shown ? { borderColor: shown } : undefined} />
-              ) : (
-                <span className={`pw-swatch-dot${shown ? '' : ' default'}`} style={shown ? { background: shown } : undefined} />
+            <Fragment key={c.key}>
+              <ToolbarButton
+                label={c.label ?? (c.kind === 'text' ? 'Text color' : 'Background color')}
+                active={open === c.key}
+                onClick={() => toggle(c.key)}
+              >
+                {c.kind === 'text' ? (
+                  <span className="pw-text-color-icon">
+                    A
+                    <span className={`pw-text-color-bar${shown ? '' : ' default'}`} style={shown ? { background: shown } : undefined} />
+                  </span>
+                ) : c.kind === 'stroke' ? (
+                  <span className="pw-stroke-icon" style={shown ? { borderColor: shown } : undefined} />
+                ) : (
+                  <span className={`pw-swatch-dot${shown ? '' : ' default'}`} style={shown ? { background: shown } : undefined} />
+                )}
+              </ToolbarButton>
+              {border && (
+                <>
+                  <Dropdown
+                    compact
+                    label="Border style"
+                    value={border.style}
+                    options={BORDER_STYLE_OPTIONS}
+                    open={open === 'borderStyle'}
+                    onToggle={() => toggle('borderStyle')}
+                    onClose={close}
+                    onPick={(s) => ctx.updateData(props.id, { strokeStyle: s === 'solid' ? undefined : s })}
+                  />
+                  {border.style !== 'none' && (
+                    <Dropdown
+                      compact
+                      label="Border thickness"
+                      value={border.width}
+                      options={BORDER_WIDTH_OPTIONS}
+                      open={open === 'borderWidth'}
+                      onToggle={() => toggle('borderWidth')}
+                      onClose={close}
+                      onPick={(w) => ctx.updateData(props.id, { strokeWidth: w === DEFAULT_GROUP_BORDER_WIDTH ? undefined : w })}
+                    />
+                  )}
+                  <span className="pw-node-toolbar-sep" />
+                </>
               )}
-            </ToolbarButton>
+            </Fragment>
           );
         })}
         {props.font && (
@@ -525,8 +629,20 @@ function BoardToolbar(props: { id: string; colors?: ColorSlot[]; font?: { size: 
               open={open === 'weight'}
               onToggle={() => toggle('weight')}
               onClose={close}
-              onPick={(fontWeight) => ctx.updateData(props.id, { fontWeight: fontWeight === DEFAULT_FONT_WEIGHT ? undefined : fontWeight })}
+              onPick={(fontWeight) => ctx.updateData(props.id, { fontWeight: fontWeight === (props.font?.defaultWeight ?? DEFAULT_FONT_WEIGHT) ? undefined : fontWeight })}
             />
+            {props.titlePosition && (
+              <Dropdown
+                compact
+                label="Title position"
+                value={props.titlePosition}
+                options={GROUP_TITLE_POSITIONS.map((p) => ({ value: p, label: TITLE_POSITION_LABELS[p], icon: <TitlePositionIcon position={p} /> }))}
+                open={open === 'titlePosition'}
+                onToggle={() => toggle('titlePosition')}
+                onClose={close}
+                onPick={(titlePosition) => ctx.updateData(props.id, { titlePosition: titlePosition === 'top-left' ? undefined : titlePosition })}
+              />
+            )}
             <span className="pw-node-toolbar-sep" />
           </>
         )}

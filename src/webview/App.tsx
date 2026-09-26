@@ -114,7 +114,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
     if (n.type === 'file') {
       fileById.set(n.id, n.file);
       out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation } });
-    } else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color, annotation: n.annotation } });
+    } else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight, titlePosition: n.titlePosition, strokeColor: n.strokeColor, strokeWidth: n.strokeWidth, strokeStyle: n.strokeStyle, annotation: n.annotation } });
     else if (n.type === 'media') out.push({ ...base, type: 'media', data: { src: n.src, annotation: n.annotation } });
     else if (n.type === 'shape')
       out.push({
@@ -311,7 +311,7 @@ function toWorkspace(nodes: RFNode[], edges: RFEdge[]): WorkspaceFile {
       case 'file':
         return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation };
       case 'group':
-        return { ...rect, ...parent, type: 'group', title: n.data.title, color: n.data.color, annotation: n.data.annotation };
+        return { ...rect, ...parent, type: 'group', ...n.data };
       case 'shape':
         return { ...rect, ...parent, type: 'shape', ...n.data };
       case 'media':
