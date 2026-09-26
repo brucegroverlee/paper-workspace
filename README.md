@@ -22,6 +22,9 @@ Works in **VS Code**, **Cursor** and **Windsurf / Devin**.
   - **Manual** — add code with **Ctrl+Alt+P** (Cmd+Alt+P) on a selection, Explorer → *Add to Paper Workspace*, or
     Shift+drag files onto the canvas.
   - **Take over** — opening a file adds it to the target workspace instead of a normal tab.
+- **Export / import**: right-click a workspace → *Export…* to save it as a single `.paperbundle` file with all its
+  images and videos inside; *Import Workspace…* in the panel title bar adds it to another repository or machine. Code
+  papers keep their relative paths, so import into a checkout of the same project.
 - **Ctrl+S** in a canvas saves the layout and every changed file on it.
 - **Explorer sync**: selecting or clicking into a paper selects its file in the Explorer (setting `paperWorkspace.revealInExplorer`).
 

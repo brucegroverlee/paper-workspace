@@ -82,7 +82,7 @@ export type WebviewToHost =
   | { type: 'nodeFocused'; file: string }
   /** Pick image/video files from the computer; answered with `mediaAdded`. */
   | { type: 'pickMedia'; position: XY }
-  /** Store pasted or dropped media (base64) under `.paperworkspace/media`; answered with `mediaAdded`. */
+  /** Store pasted or dropped media (base64) under `.paperworkspace/media/<workspace>`; answered with `mediaAdded`. */
   | { type: 'saveMedia'; name: string; mime: string; data: string; position: XY }
   /** IntelliSense for a paper, answered by VS Code's language providers with `languageResult`. */
   | { type: 'language'; id: number; file: string; request: LanguageRequest };

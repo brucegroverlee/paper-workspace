@@ -50,7 +50,7 @@ Readers must skip kinds they don't recognize.
 | `shape` | A diagram shape with a label (see the shape list below). | `shape`, `text`, `color?`, `strokeColor?`, `textColor?`, `fontSize?`, `fontWeight?`, `annotation?` |
 | `note` | A sticky note, plain text on a colored square. | `text`, `color?` (background, default `#ffec99`), `textColor?`, `fontSize?` (default 14), `fontWeight?` |
 | `text` | Free text with no background (titles, headings, labels). | `text`, `color?` (text color), `fontSize?` (default 18), `fontWeight?` |
-| `media` | An image or video. | `src` (path, usually `.paperworkspace/media/<name>`), `annotation?` |
+| `media` | An image or video. | `src` (path, usually `.paperworkspace/media/<workspace>/<name>`), `annotation?` |
 
 Field details:
 

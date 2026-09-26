@@ -92,7 +92,7 @@ export interface MediaNode {
   id: string;
   type: 'media';
   parent?: string;
-  /** Workspace path (like `file`), usually `.paperworkspace/media/<name>`. */
+  /** Workspace path (like `file`), usually `.paperworkspace/media/<workspace>/<name>`. */
   src: string;
   /** Caption shown centered below the box; undefined = no annotation (the default), `''` = shown but still empty. */
   annotation?: string;

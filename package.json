@@ -104,7 +104,7 @@
     "viewsWelcome": [
       {
         "view": "paperWorkspace.workspaces",
-        "contents": "No paper workspaces yet.\n[New Workspace](command:paperWorkspace.newWorkspace)",
+        "contents": "No paper workspaces yet.\n[New Workspace](command:paperWorkspace.newWorkspace)\n[Import Workspace…](command:paperWorkspace.importWorkspace)",
         "when": "workspaceFolderCount > 0"
       },
       {
@@ -154,6 +154,18 @@
         "category": "Paper Workspace"
       },
       {
+        "command": "paperWorkspace.exportWorkspace",
+        "title": "Export…",
+        "category": "Paper Workspace",
+        "icon": "$(export)"
+      },
+      {
+        "command": "paperWorkspace.importWorkspace",
+        "title": "Import Workspace…",
+        "category": "Paper Workspace",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "paperWorkspace.addSelection",
         "title": "Add Selection to Paper Workspace",
         "category": "Paper Workspace"
@@ -172,14 +184,19 @@
           "group": "navigation@1"
         },
         {
-          "command": "paperWorkspace.setMode",
+          "command": "paperWorkspace.importWorkspace",
           "when": "view == paperWorkspace.workspaces",
           "group": "navigation@2"
         },
         {
-          "command": "paperWorkspace.refresh",
+          "command": "paperWorkspace.setMode",
           "when": "view == paperWorkspace.workspaces",
           "group": "navigation@3"
+        },
+        {
+          "command": "paperWorkspace.refresh",
+          "when": "view == paperWorkspace.workspaces",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -207,6 +224,11 @@
           "command": "paperWorkspace.deleteWorkspace",
           "when": "view == paperWorkspace.workspaces && viewItem =~ /^workspace/",
           "group": "2_edit"
+        },
+        {
+          "command": "paperWorkspace.exportWorkspace",
+          "when": "view == paperWorkspace.workspaces && viewItem =~ /^workspace/",
+          "group": "3_share"
         }
       ],
       "editor/context": [
@@ -221,6 +243,11 @@
           "command": "paperWorkspace.addFile",
           "when": "paperWorkspace.enabled && !explorerResourceIsFolder",
           "group": "paperWorkspace@1"
+        },
+        {
+          "command": "paperWorkspace.importWorkspace",
+          "when": "resourceExtname == .paperbundle",
+          "group": "paperWorkspace@2"
         }
       ],
       "commandPalette": [

@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { WORKSPACE_EXT, type LineRange } from '../shared/workspace';
 import type { WebviewToHost } from '../shared/protocol';
+import { BUNDLE_EXT } from '../shared/bundle';
 import { CANVAS_VIEW_TYPE, CanvasProvider } from './canvasProvider';
-import { MODE_LABELS, Mode, WorkspaceStore, exists, labelFor } from './workspaceStore';
+import { MODE_LABELS, Mode, WorkspaceStore, labelFor } from './workspaceStore';
 import { TakeoverController, rangeFromSelection } from './takeover';
 import { WorkspacesView } from './workspacesView';
 
@@ -94,31 +95,83 @@ export function activate(context: vscode.ExtensionContext) {
       if (uri) return store.setTarget(uri);
     }),
 
-    vscode.commands.registerCommand('paperWorkspace.renameWorkspace', async (arg: WorkspaceArg) => {
+    // `newName` / `dest` below skip the dialogs (integration tests, other extensions).
+    vscode.commands.registerCommand('paperWorkspace.renameWorkspace', async (arg: WorkspaceArg, newName?: string) => {
       const uri = workspaceFrom(arg);
       if (!uri) return;
-      const name = await vscode.window.showInputBox({ prompt: 'New name', value: labelFor(uri) });
+      const name = typeof newName === 'string' ? newName : await vscode.window.showInputBox({ prompt: 'New name', value: labelFor(uri) });
       if (!name || name === labelFor(uri)) return;
-      const next = vscode.Uri.joinPath(uri, '..', `${name.replace(/[<>:"/\\|?*]/g, '-')}${WORKSPACE_EXT}`);
-      if (await exists(next)) return void vscode.window.showErrorMessage(`"${name}" already exists.`);
-      const wasTarget = store.isTarget(uri);
-      await vscode.workspace.fs.rename(uri, next);
-      if (wasTarget) await store.setTarget(next);
-      store.refresh();
+      try {
+        await store.rename(uri, name);
+      } catch (e) {
+        void vscode.window.showErrorMessage(`Paper Workspace: ${(e as Error).message}`);
+      }
     }),
 
     vscode.commands.registerCommand('paperWorkspace.deleteWorkspace', async (arg: WorkspaceArg) => {
       const uri = workspaceFrom(arg);
       if (!uri) return;
       const ok = await vscode.window.showWarningMessage(
-        `Delete workspace workspace "${labelFor(uri)}"? The layout file is moved to the trash; your source files are not touched.`,
+        `Delete workspace "${labelFor(uri)}"? The layout file and its media folder are moved to the trash; your source files are not touched.`,
         { modal: true },
         'Delete',
       );
       if (ok !== 'Delete') return;
-      await vscode.workspace.fs.delete(uri, { useTrash: true });
-      if (store.isTarget(uri)) await store.setTarget(undefined);
-      store.refresh();
+      await store.remove(uri);
+    }),
+
+    vscode.commands.registerCommand('paperWorkspace.exportWorkspace', async (arg: WorkspaceArg, to?: vscode.Uri) => {
+      let uri = workspaceFrom(arg);
+      if (!uri) {
+        const workspaces = await store.list();
+        if (!workspaces.length) return void vscode.window.showInformationMessage('Paper Workspace: there is no workspace to export.');
+        const pick = await vscode.window.showQuickPick(
+          workspaces.map((w) => ({ label: labelFor(w), description: vscode.workspace.asRelativePath(w), uri: w })),
+          { placeHolder: 'Workspace to export' },
+        );
+        uri = pick?.uri;
+      }
+      if (!uri) return;
+      const dest = to instanceof vscode.Uri ? to : await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(store.rootFor(uri), labelFor(uri) + BUNDLE_EXT),
+        filters: { 'Paper Workspace bundle': [BUNDLE_EXT.slice(1)] },
+        saveLabel: 'Export',
+        title: `Export "${labelFor(uri)}"`,
+      });
+      if (!dest) return;
+      try {
+        const { text, missing } = await store.exportBundle(uri);
+        await vscode.workspace.fs.writeFile(dest, Buffer.from(text, 'utf8'));
+        const done = `Paper Workspace: exported "${labelFor(uri)}" to ${dest.fsPath}.`;
+        if (missing.length) void vscode.window.showWarningMessage(`${done} Missing media not included: ${missing.join(', ')}`);
+        else void vscode.window.showInformationMessage(done);
+      } catch (e) {
+        void vscode.window.showErrorMessage(`Paper Workspace: ${(e as Error).message}`);
+      }
+    }),
+
+    vscode.commands.registerCommand('paperWorkspace.importWorkspace', async (file?: vscode.Uri) => {
+      if (!(file instanceof vscode.Uri)) {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          openLabel: 'Import',
+          title: 'Import a Paper Workspace',
+          filters: { 'Paper Workspace bundle': [BUNDLE_EXT.slice(1)], 'Workspace layout': [WORKSPACE_EXT.slice(1)] },
+        });
+        file = picked?.[0];
+      }
+      if (!file) return;
+      let folder: vscode.WorkspaceFolder | undefined;
+      if ((vscode.workspace.workspaceFolders?.length ?? 0) > 1) {
+        folder = await vscode.window.showWorkspaceFolderPick({ placeHolder: 'Folder to import the workspace into' });
+        if (!folder) return;
+      }
+      try {
+        const uri = await store.importBundle(file, folder);
+        await vscode.commands.executeCommand('vscode.openWith', uri, CANVAS_VIEW_TYPE);
+      } catch (e) {
+        void vscode.window.showErrorMessage(`Paper Workspace: could not import: ${(e as Error).message}`);
+      }
     }),
 
     vscode.commands.registerCommand('paperWorkspace.addSelection', async () => {

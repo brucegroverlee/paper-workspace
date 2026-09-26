@@ -110,7 +110,7 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
 { "id": "t_1", "type": "text", "text": "Overview", "color": "#ffec99", "fontSize": 40, "position": { "x": 0, "y": -80 }, "width": 240, "height": 54 },
 { "id": "n_1", "type": "note", "parent": "g_1", "text": "Check this", "position": { "x": 400, "y": 300 }, "width": 220, "height": 220 },
 { "id": "s_1", "type": "shape", "parent": "g_1", "shape": "diamond", "text": "Valid?", "color": "#ffec99", "position": { "x": 40, "y": 300 }, "width": 140, "height": 100 },
-{ "id": "m_1", "type": "media", "src": ".paperworkspace/media/pasted-20260923.png", "position": { "x": 800, "y": 0 }, "width": 480, "height": 270 }
+{ "id": "m_1", "type": "media", "src": ".paperworkspace/media/main/pasted-20260923.png", "position": { "x": 800, "y": 0 }, "width": 480, "height": 270 }
 ```
 
 * **Group**: a titled, colored area (double-click the title to rename). Ctrl/Cmd+G wraps the selection (or adds an empty
@@ -142,8 +142,21 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
     "label": "calls", "fontSize": 16, "fontWeight": 600 }
   ```
 * **Media**: images and videos. Picked files inside the paper root are referenced; files outside it, pasted and
-  dropped bytes are written to `.paperworkspace/media/`. The webview reads them through `mediaRoot` (the root is a
-  `localResourceRoot`).
+  dropped bytes are written to the workspace's own folder `.paperworkspace/media/<workspace>/`, which is renamed and
+  trashed with the workspace (older layouts may still point at files directly in `.paperworkspace/media/`; they keep
+  working). The webview reads them through `mediaRoot` (the root is a `localResourceRoot`).
+* **Export / import** (`src/shared/bundle.ts`): *Export…* on a workspace writes a `.paperbundle`, a JSON file with the
+  layout (unsaved canvas changes included) and the base64 bytes of every local media file it shows, keyed by `src`.
+  Source files are not included; papers keep their root-relative paths. *Import Workspace…* (panel title bar, or the
+  Explorer menu on a `.paperbundle`) creates a new, uniquely named workspace; embedded media goes into its media
+  folder with `src`s rewritten, except repository files (outside `.paperworkspace/`) that already exist with the same
+  bytes, which stay referenced. A plain `.workspace` file can be imported too (layout only).
+
+  ```json
+  { "format": "paper-workspace-bundle", "version": 1, "name": "main", "exportedAt": "2026-09-26T10:00:00.000Z",
+    "workspace": { "version": 2, "nodes": [], "edges": [] },
+    "media": { ".paperworkspace/media/main/shot.png": { "name": "shot.png", "data": "iVBORw0…" } } }
+  ```
 * **Annotations**: files, groups, shapes and media can carry an `annotation`, a small italic caption centered below the
   box (like an image caption; under a stick figure it follows the label). It is off by default (no key in the file);
   the comment button in the file header or the node toolbar adds it (`""` until typed) or removes it with its text.

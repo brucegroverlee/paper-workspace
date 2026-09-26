@@ -18,6 +18,17 @@ import {
   serializeWorkspace,
 } from '../shared/workspace';
 import { isAbsoluteWorkspacePath, sanitizeWorkspaceName, toWorkspacePath } from '../shared/paths';
+import {
+  type BundleMedia,
+  createBundle,
+  isWorkspaceOwnedPath,
+  localMediaSources,
+  mediaFolderPath,
+  parseBundle,
+  rebaseMediaSources,
+  rewriteMediaSources,
+  serializeBundle,
+} from '../shared/bundle';
 import type { CanvasConfig, EditorSettings } from '../shared/protocol';
 
 export type Mode = 'off' | 'manual' | 'takeover';
@@ -28,7 +39,6 @@ export const MODE_LABELS: Record<Mode, string> = {
   takeover: 'Take over',
 };
 
-const MEDIA_DIR = 'media';
 const MODE_KEY = 'paperWorkspace.mode';
 const TARGET_KEY = 'paperWorkspace.target';
 
@@ -123,9 +133,13 @@ export class WorkspaceStore implements vscode.Disposable {
     return fileUri.scheme === 'file' ? fileUri.fsPath.replace(/\\/g, '/') : fileUri.toString();
   }
 
-  /** Where pasted and copied-in media of a workspace are stored: `<root>/.paperworkspace/media`. */
+  /**
+   * Where pasted and copied-in media of a workspace are stored: `<root>/.paperworkspace/media/<workspace name>`.
+   * Each workspace owns its folder, so it is renamed, deleted and exported together with the workspace.
+   * (Older workspaces may still reference files directly in `.paperworkspace/media`; those keep working.)
+   */
   mediaDirFor(workspaceUri: vscode.Uri): vscode.Uri {
-    return vscode.Uri.joinPath(this.rootFor(workspaceUri), WORKSPACE_DIR, MEDIA_DIR);
+    return this.resolveWorkspacePath(workspaceUri, mediaFolderPath(labelFor(workspaceUri)));
   }
 
   /** Write media bytes into the workspace's media folder under a free name; returns the workspace path. */
@@ -159,12 +173,102 @@ export class WorkspaceStore implements vscode.Disposable {
   async create(name: string, folder?: vscode.WorkspaceFolder): Promise<vscode.Uri> {
     const ws = folder ?? vscode.workspace.workspaceFolders?.[0];
     if (!ws) throw new Error('Open a folder to create a workspace workspace.');
-    const safe = sanitizeWorkspaceName(name) || 'workspace';
-    const dir = vscode.Uri.joinPath(ws.uri, WORKSPACE_DIR);
-    await vscode.workspace.fs.createDirectory(dir);
-    let uri = vscode.Uri.joinPath(dir, safe + WORKSPACE_EXT);
-    for (let i = 2; await exists(uri); i++) uri = vscode.Uri.joinPath(dir, `${safe}-${i}${WORKSPACE_EXT}`);
+    const uri = await freeWorkspaceUri(ws, name);
     await vscode.workspace.fs.writeFile(uri, Buffer.from(serializeWorkspace(emptyWorkspace()), 'utf8'));
+    if (!this.target || !(await exists(this.target))) await this.setTarget(uri);
+    this.changeEmitter.fire();
+    return uri;
+  }
+
+  /** Rename a workspace together with its media folder, rewriting the media paths in the layout. */
+  async rename(uri: vscode.Uri, name: string): Promise<vscode.Uri> {
+    const safe = sanitizeWorkspaceName(name);
+    if (!safe) throw new Error('Enter a valid name.');
+    const next = vscode.Uri.joinPath(uri, '..', safe + WORKSPACE_EXT);
+    if (await exists(next)) throw new Error(`"${safe}" already exists.`);
+    const oldMedia = this.mediaDirFor(uri);
+    const newMedia = this.mediaDirFor(next);
+    const hasMedia = await exists(oldMedia);
+    if (hasMedia && (await exists(newMedia))) throw new Error(`The media folder of "${safe}" already exists.`);
+
+    const wasTarget = this.isTarget(uri);
+    if (hasMedia) await vscode.workspace.fs.rename(oldMedia, newMedia);
+    try {
+      await vscode.workspace.fs.rename(uri, next);
+    } catch (e) {
+      if (hasMedia) await vscode.workspace.fs.rename(newMedia, oldMedia);
+      throw e;
+    }
+    if (hasMedia) {
+      const { workspace, error } = parseWorkspace(Buffer.from(await vscode.workspace.fs.readFile(next)).toString('utf8'));
+      if (!error) {
+        const moved = rebaseMediaSources(workspace, mediaFolderPath(labelFor(uri)), mediaFolderPath(labelFor(next)));
+        await vscode.workspace.fs.writeFile(next, Buffer.from(serializeWorkspace(moved), 'utf8'));
+      }
+    }
+    if (wasTarget) await this.setTarget(next);
+    this.changeEmitter.fire();
+    return next;
+  }
+
+  /** Move a workspace and its media folder to the trash. Source files are never touched. */
+  async remove(uri: vscode.Uri) {
+    const media = this.mediaDirFor(uri);
+    await vscode.workspace.fs.delete(uri, { useTrash: true });
+    if (await exists(media)) await vscode.workspace.fs.delete(media, { recursive: true, useTrash: true });
+    if (this.isTarget(uri)) await this.setTarget(undefined);
+    this.changeEmitter.fire();
+  }
+
+  /**
+   * Build a `.paperbundle` for a workspace: its layout (including unsaved canvas changes) plus every local media
+   * file it shows, wherever that file lives. Returns the bundle text and the media paths that could not be read.
+   */
+  async exportBundle(uri: vscode.Uri): Promise<{ text: string; missing: string[] }> {
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const { workspace, error } = parseWorkspace(doc.getText());
+    if (error) throw new Error(`"${labelFor(uri)}" cannot be exported: ${error}`);
+    const media: Record<string, BundleMedia> = {};
+    const missing: string[] = [];
+    for (const src of localMediaSources(workspace)) {
+      const file = this.resolveWorkspacePath(uri, src);
+      try {
+        const bytes = await vscode.workspace.fs.readFile(file);
+        media[src] = { name: file.path.split('/').pop() || 'media', data: Buffer.from(bytes).toString('base64') };
+      } catch {
+        missing.push(src);
+      }
+    }
+    return { text: serializeBundle(createBundle(labelFor(uri), workspace, media)), missing };
+  }
+
+  /**
+   * Create a new workspace from a `.paperbundle` (or a plain `.workspace` file). Embedded media is written into
+   * the new workspace's media folder, except repository files that already exist here with the same content,
+   * which stay referenced where they are.
+   */
+  async importBundle(file: vscode.Uri, folder?: vscode.WorkspaceFolder): Promise<vscode.Uri> {
+    const ws = folder ?? vscode.workspace.workspaceFolders?.[0];
+    if (!ws) throw new Error('Open a folder to import a workspace.');
+    const text = Buffer.from(await vscode.workspace.fs.readFile(file)).toString('utf8');
+    let bundle: ReturnType<typeof parseBundle>;
+    if (file.path.endsWith(WORKSPACE_EXT)) {
+      const { workspace, error } = parseWorkspace(text);
+      if (error) throw new Error(error);
+      bundle = { name: labelFor(file), workspace, media: {} };
+    } else {
+      bundle = parseBundle(text);
+    }
+
+    const uri = await freeWorkspaceUri(ws, bundle.name);
+    const srcs = new Map<string, string>();
+    for (const [src, m] of Object.entries(bundle.media)) {
+      const bytes = Buffer.from(m.data, 'base64');
+      if (!isAbsoluteWorkspacePath(src) && !isWorkspaceOwnedPath(src) && (await sameBytes(this.resolveWorkspacePath(uri, src), bytes))) continue;
+      srcs.set(src, await this.saveMedia(uri, m.name, bytes));
+    }
+    const workspace = rewriteMediaSources(bundle.workspace, (src) => srcs.get(src));
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(serializeWorkspace(workspace), 'utf8'));
     if (!this.target || !(await exists(this.target))) await this.setTarget(uri);
     this.changeEmitter.fire();
     return uri;
@@ -251,6 +355,24 @@ export async function exists(uri: vscode.Uri) {
   try {
     await vscode.workspace.fs.stat(uri);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/** `<folder>/.paperworkspace/<name>.workspace`, numbered if taken; creates the directory. */
+async function freeWorkspaceUri(folder: vscode.WorkspaceFolder, name: string): Promise<vscode.Uri> {
+  const safe = sanitizeWorkspaceName(name) || 'workspace';
+  const dir = vscode.Uri.joinPath(folder.uri, WORKSPACE_DIR);
+  await vscode.workspace.fs.createDirectory(dir);
+  let uri = vscode.Uri.joinPath(dir, safe + WORKSPACE_EXT);
+  for (let i = 2; await exists(uri); i++) uri = vscode.Uri.joinPath(dir, `${safe}-${i}${WORKSPACE_EXT}`);
+  return uri;
+}
+
+async function sameBytes(uri: vscode.Uri, bytes: Uint8Array) {
+  try {
+    return Buffer.from(await vscode.workspace.fs.readFile(uri)).equals(bytes);
   } catch {
     return false;
   }

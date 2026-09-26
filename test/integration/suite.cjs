@@ -179,5 +179,50 @@ exports.run = async function run() {
     assert.equal(s.mode, 'off');
   });
 
+  await step('export/import carries media; rename moves the media folder', async () => {
+    const pw = vscode.Uri.joinPath(ws, '.paperworkspace');
+    const bytes = Buffer.from('fake-png-bytes');
+    const docBytes = Buffer.from('<svg/>');
+    fs.mkdirSync(vscode.Uri.joinPath(pw, 'media', 'shared').fsPath, { recursive: true });
+    fs.mkdirSync(vscode.Uri.joinPath(ws, 'docs').fsPath, { recursive: true });
+    fs.writeFileSync(vscode.Uri.joinPath(pw, 'media', 'shared', 'shot.png').fsPath, bytes);
+    fs.writeFileSync(vscode.Uri.joinPath(ws, 'docs', 'diagram.svg').fsPath, docBytes);
+    const rect = { position: { x: 0, y: 0 }, width: 100, height: 80 };
+    const sharedUri = vscode.Uri.joinPath(pw, 'shared.workspace');
+    fs.writeFileSync(
+      sharedUri.fsPath,
+      JSON.stringify({
+        version: 2,
+        nodes: [
+          { id: 'm1', type: 'media', src: '.paperworkspace/media/shared/shot.png', ...rect },
+          { id: 'm2', type: 'media', src: 'docs/diagram.svg', ...rect },
+        ],
+        edges: [],
+      }),
+    );
+
+    const bundle = vscode.Uri.joinPath(ws, 'shared.paperbundle');
+    await vscode.commands.executeCommand('paperWorkspace.exportWorkspace', sharedUri, bundle);
+    const exported = JSON.parse(fs.readFileSync(bundle.fsPath, 'utf8'));
+    assert.equal(exported.format, 'paper-workspace-bundle');
+    assert.equal(Buffer.from(exported.media['.paperworkspace/media/shared/shot.png'].data, 'base64').toString(), bytes.toString());
+    assert.ok(exported.media['docs/diagram.svg'], 'repository media is embedded too');
+
+    await vscode.commands.executeCommand('paperWorkspace.importWorkspace', bundle);
+    const importedUri = vscode.Uri.joinPath(pw, 'shared-2.workspace');
+    const imported = JSON.parse(fs.readFileSync(importedUri.fsPath, 'utf8'));
+    const srcOf = (w, id) => w.nodes.find((n) => n.id === id).src;
+    assert.equal(srcOf(imported, 'm1'), '.paperworkspace/media/shared-2/shot.png', 'owned media is copied into the new folder');
+    assert.equal(fs.readFileSync(vscode.Uri.joinPath(ws, ...srcOf(imported, 'm1').split('/')).fsPath).toString(), bytes.toString());
+    assert.equal(srcOf(imported, 'm2'), 'docs/diagram.svg', 'identical repository file stays referenced');
+
+    await vscode.commands.executeCommand('paperWorkspace.renameWorkspace', importedUri, 'copy');
+    const renamedUri = vscode.Uri.joinPath(pw, 'copy.workspace');
+    const renamed = JSON.parse(fs.readFileSync(renamedUri.fsPath, 'utf8'));
+    assert.equal(srcOf(renamed, 'm1'), '.paperworkspace/media/copy/shot.png');
+    assert.ok(fs.existsSync(vscode.Uri.joinPath(pw, 'media', 'copy', 'shot.png').fsPath));
+    assert.ok(!fs.existsSync(vscode.Uri.joinPath(pw, 'media', 'shared-2').fsPath));
+  });
+
   fs.writeFileSync(process.env.PW_RESULTS, results.join('\n') + '\n');
 };
