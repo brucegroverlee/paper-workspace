@@ -7,6 +7,7 @@ import { useDoc, useWorkspace, type EditorNodeData, type RFEditorNode } from './
 import { monaco } from './monaco';
 import { ZOOM_LIMITS } from './Toolbar';
 import { NodeHandles } from './handles';
+import { Annotation, useToggleAnnotation } from './BoardNodes';
 
 /** Below this canvas zoom, editors render as a static preview instead of a live Monaco instance. */
 const LIVE_EDITOR_MIN_ZOOM = 0.35;
@@ -79,32 +80,44 @@ function linkRangeAt(model: monaco.editor.ITextModel, e: monaco.editor.IEditorMo
 
 export const EditorNode = memo(function EditorNode({ id, data, selected }: NodeProps<RFEditorNode>) {
   const ctx = useWorkspace();
+  const toggleAnnotation = useToggleAnnotation(id, data.annotation);
   return (
-    <div className={`pw-editor${selected ? ' selected' : ''}`}>
-      <NodeResizer isVisible={selected} minWidth={ctx.config.minNodeWidth} minHeight={ctx.config.minNodeHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
-      <NodeHandles />
-      <header
-        className="pw-editor-header"
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          ctx.openNodeMenu(id, e.clientX, e.clientY);
-        }}
-      >
-        <span className="codicon codicon-symbol-snippet pw-editor-icon" />
-        <TargetControls id={id} data={data} />
-        <button className="pw-icon nodrag" title="Focus on this paper" onClick={() => ctx.focusNode(id)}>
-          <span className="codicon codicon-zoom-in" />
-        </button>
-        <button className="pw-icon nodrag" title="Open in text editor" onClick={() => ctx.openInEditor(data.file, data.target?.start ?? 1)}>
-          <span className="codicon codicon-go-to-file" />
-        </button>
-        <button className="pw-icon nodrag" title="Remove this snippet" onClick={() => ctx.remove(id)}>
-          <span className="codicon codicon-close" />
-        </button>
-      </header>
-      <EditorBody id={id} data={data} />
-    </div>
+    <>
+      <div className={`pw-editor${selected ? ' selected' : ''}`}>
+        <NodeResizer isVisible={selected} minWidth={ctx.config.minNodeWidth} minHeight={ctx.config.minNodeHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
+        <NodeHandles />
+        <header
+          className="pw-editor-header"
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            ctx.openNodeMenu(id, e.clientX, e.clientY);
+          }}
+        >
+          <span className="codicon codicon-symbol-snippet pw-editor-icon" />
+          <TargetControls id={id} data={data} />
+          <button
+            className={`pw-icon nodrag${data.annotation !== undefined ? ' active' : ''}`}
+            title={data.annotation !== undefined ? 'Remove annotation' : 'Add annotation'}
+            aria-pressed={data.annotation !== undefined}
+            onClick={toggleAnnotation}
+          >
+            <span className="codicon codicon-comment" />
+          </button>
+          <button className="pw-icon nodrag" title="Focus on this paper" onClick={() => ctx.focusNode(id)}>
+            <span className="codicon codicon-zoom-in" />
+          </button>
+          <button className="pw-icon nodrag" title="Open in text editor" onClick={() => ctx.openInEditor(data.file, data.target?.start ?? 1)}>
+            <span className="codicon codicon-go-to-file" />
+          </button>
+          <button className="pw-icon nodrag" title="Remove this snippet" onClick={() => ctx.remove(id)}>
+            <span className="codicon codicon-close" />
+          </button>
+        </header>
+        <EditorBody id={id} data={data} />
+      </div>
+      <Annotation id={id} value={data.annotation} />
+    </>
   );
 });
 

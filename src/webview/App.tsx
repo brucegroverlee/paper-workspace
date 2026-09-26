@@ -33,6 +33,8 @@ import {
   editorHeightFor,
   FILE_HEADER_HEIGHT,
   FILE_PADDING,
+  ANNOTATION_SPACE,
+  EDITOR_GAP,
   fileSizeFor,
   singleFileSize,
   newId,
@@ -111,14 +113,14 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
     };
     if (n.type === 'file') {
       fileById.set(n.id, n.file);
-      out.push({ ...base, type: 'file', data: { file: n.file } });
-    } else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color } });
-    else if (n.type === 'media') out.push({ ...base, type: 'media', data: { src: n.src } });
+      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation } });
+    } else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color, annotation: n.annotation } });
+    else if (n.type === 'media') out.push({ ...base, type: 'media', data: { src: n.src, annotation: n.annotation } });
     else if (n.type === 'shape')
       out.push({
         ...base,
         type: 'shape',
-        data: { shape: n.shape, text: n.text, color: n.color, strokeColor: n.strokeColor, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight },
+        data: { shape: n.shape, text: n.text, color: n.color, strokeColor: n.strokeColor, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight, annotation: n.annotation },
       });
     else out.push({ ...base, type: n.type, data: { text: n.text, color: n.color, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight } });
   }
@@ -135,7 +137,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
       measured: { width: n.width, height: n.height },
       dragHandle: EDITOR_DRAG_HANDLE,
       selected: selected.has(n.id),
-      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor },
+      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation },
     });
   }
   return normalizeLayout(out);
@@ -158,15 +160,22 @@ function normalizeLayout(ns: RFNode[]): RFNode[] {
     let file = f;
     if (kids.length === 1) {
       const k = kids[0];
+      let data = k.data;
       if (!k.hidden) {
         const size = singleFileSize({ width: k.width ?? DEFAULT_EDITOR_WIDTH, height: k.height ?? DEFAULT_EDITOR_HEIGHT });
         file = sized(file, size.width, size.height);
+      }
+      if (data.annotation !== undefined) {
+        // A combined node shows only the file's caption: the last snippet's caption joins it.
+        const joined = [file.data.annotation, data.annotation].filter((a) => a).join('\n');
+        file = { ...file, data: { ...file.data, annotation: joined } };
+        data = { ...data, annotation: undefined };
       }
       const w = file.width ?? DEFAULT_EDITOR_WIDTH;
       const h = file.height ?? DEFAULT_EDITOR_HEIGHT;
       // No expandParent while embedded: React Flow's resizer never shrinks a parent below such children,
       // even hidden ones, so the combined node could otherwise only grow.
-      const embedded = { ...k, hidden: true, expandParent: false, selected: false, position: { x: 0, y: FILE_HEADER_HEIGHT } };
+      const embedded = { ...k, data, hidden: true, expandParent: false, selected: false, position: { x: 0, y: FILE_HEADER_HEIGHT } };
       updates.set(k.id, sized(embedded, w, h - FILE_HEADER_HEIGHT));
     } else if (kids.length > 1) {
       const laid = kids.map((k) => {
@@ -176,7 +185,7 @@ function normalizeLayout(ns: RFNode[]): RFNode[] {
         return e;
       });
       const size = fileSizeFor(
-        laid.map((k) => ({ position: k.position, width: k.width ?? DEFAULT_EDITOR_WIDTH, height: k.height ?? DEFAULT_EDITOR_HEIGHT })),
+        laid.map((k) => ({ position: k.position, width: k.width ?? DEFAULT_EDITOR_WIDTH, height: k.height ?? DEFAULT_EDITOR_HEIGHT, annotation: k.data.annotation })),
       );
       const w = Math.max(file.width ?? 0, size.width);
       const h = Math.max(file.height ?? 0, size.height);
@@ -185,6 +194,22 @@ function normalizeLayout(ns: RFNode[]): RFNode[] {
     if (file !== f) updates.set(f.id, file);
   }
   return updates.size ? ns.map((n) => updates.get(n.id) ?? n) : ns;
+}
+
+/** A snippet just got a caption: push the snippets below it (in its file) down, so the caption does not sit under them. */
+function makeRoomBelow(ns: RFNode[], editor: RFEditorNode): RFNode[] {
+  const left = editor.position.x;
+  const right = left + (editor.width ?? DEFAULT_EDITOR_WIDTH);
+  const bottom = editor.position.y + (editor.height ?? DEFAULT_EDITOR_HEIGHT);
+  const below = ns.filter(
+    (n): n is RFEditorNode =>
+      isEditor(n) && n.parentId === editor.parentId && n.id !== editor.id && n.position.y >= bottom && n.position.x < right && n.position.x + (n.width ?? 0) > left,
+  );
+  if (!below.length) return ns;
+  const shift = bottom + ANNOTATION_SPACE + EDITOR_GAP - Math.min(...below.map((n) => n.position.y));
+  if (shift <= 0) return ns;
+  const moved = new Set(below.map((n) => n.id));
+  return ns.map((n) => (moved.has(n.id) ? { ...n, position: { x: n.position.x, y: n.position.y + shift } } : n));
 }
 
 /** Boxes stack among the boxes of their group (or the canvas), editors among the editors of their file. */
@@ -282,15 +307,15 @@ function toWorkspace(nodes: RFNode[], edges: RFEdge[]): WorkspaceFile {
     const parent = n.parentId !== undefined ? { parent: n.parentId } : {};
     switch (n.type) {
       case 'editor':
-        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor };
+        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation };
       case 'file':
-        return { ...rect, ...parent, type: 'file', file: n.data.file };
+        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation };
       case 'group':
-        return { ...rect, ...parent, type: 'group', title: n.data.title, color: n.data.color };
+        return { ...rect, ...parent, type: 'group', title: n.data.title, color: n.data.color, annotation: n.data.annotation };
       case 'shape':
         return { ...rect, ...parent, type: 'shape', ...n.data };
       case 'media':
-        return { ...rect, ...parent, type: 'media', src: n.data.src };
+        return { ...rect, ...parent, type: 'media', src: n.data.src, annotation: n.data.annotation };
       default:
         return { ...rect, ...parent, type: n.type, text: n.data.text, color: n.data.color, textColor: n.data.textColor, fontSize: n.data.fontSize, fontWeight: n.data.fontWeight };
     }
@@ -708,6 +733,7 @@ export function App() {
             position: c.position,
             width: c.width ?? DEFAULT_EDITOR_WIDTH,
             height: c.height ?? DEFAULT_EDITOR_HEIGHT,
+            annotation: c.data.annotation,
           }));
           const width = asWorkspace.length ? Math.max(...asWorkspace.map((e) => e.width)) : DEFAULT_EDITOR_WIDTH;
           const height = editorHeightFor(target, lineHeight);
@@ -739,6 +765,13 @@ export function App() {
       },
       updateData: (id, patch) =>
         updateNodes((ns) => ns.map((n) => (n.id === id && !isFile(n) && !isEditor(n) ? ({ ...n, data: { ...n.data, ...patch } } as RFNode) : n))),
+      setAnnotation: (id, annotation) =>
+        updateNodes((ns) => {
+          const node = ns.find((n) => n.id === id);
+          if (!node || node.type === 'text' || node.type === 'note') return ns;
+          const next = ns.map((n) => (n === node ? ({ ...n, data: { ...n.data, annotation } } as RFNode) : n));
+          return isEditor(node) && node.data.annotation === undefined && annotation !== undefined ? makeRoomBelow(next, node) : next;
+        }),
       updateLink: (id, patch) => {
         setEdges((es) => es.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
         commit();

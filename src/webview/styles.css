@@ -278,6 +278,10 @@ body {
   color: var(--pw-fg);
 }
 
+.pw-icon.active {
+  color: var(--pw-accent);
+}
+
 /* ---- editor nodes (snippets inside a file) --------------------------------------------------- */
 
 .pw-editor {
@@ -1276,8 +1280,58 @@ kbd {
 }
 
 .pw-shape-label.below {
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
   padding-top: 4px;
+}
+
+/* ---- annotations (captions below a node) -------------------------------------------------------- */
+
+/* Hangs below the node's box, centered, at least as wide as the node (wider for small shapes). */
+.pw-annotation {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max(100%, 180px);
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 0 4px;
+  color: var(--pw-canvas-fg);
+  opacity: 0.7;
+  font-family: var(--pw-font);
+  font-size: 13px;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+
+/* A snippet's caption sits on its file's panel, not on the canvas. */
+.react-flow__node-editor .pw-annotation {
+  color: var(--pw-fg);
+}
+
+.pw-annotation.inline {
+  position: static;
+  transform: none;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.pw-annotation.editing {
+  opacity: 1;
+  outline: 1px dashed var(--pw-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.pw-annotation .pw-text-input {
+  text-align: center;
 }
 
 .pw-shape-label .pw-text-input {

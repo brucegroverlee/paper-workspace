@@ -27,6 +27,8 @@ export interface FileNode {
   parent?: string;
   /** Path relative to the workspace folder that owns the `.workspace` file (POSIX separators), or absolute if outside it. */
   file: string;
+  /** Caption shown centered below the box; undefined = no annotation (the default), `''` = shown but still empty. */
+  annotation?: string;
   position: XY;
   width: number;
   height: number;
@@ -41,6 +43,11 @@ export interface EditorNode {
   target?: LineRange;
   /** Trimmed text of the target's first line; used to re-find it if the file changed while the canvas was closed. */
   anchor?: string;
+  /**
+   * Caption below the snippet (see FileNode); undefined = none. Only shown while the file has several snippets:
+   * a combined (single-snippet) node shows the file's annotation instead.
+   */
+  annotation?: string;
   /** Relative to the parent file node. */
   position: XY;
   width: number;
@@ -55,6 +62,8 @@ export interface GroupNode {
   title: string;
   /** Background color (`#rrggbb`); undefined = the theme's paper color. */
   color?: string;
+  /** Caption shown centered below the box; undefined = no annotation (the default), `''` = shown but still empty. */
+  annotation?: string;
   position: XY;
   width: number;
   height: number;
@@ -85,6 +94,8 @@ export interface MediaNode {
   parent?: string;
   /** Workspace path (like `file`), usually `.paperworkspace/media/<name>`. */
   src: string;
+  /** Caption shown centered below the box; undefined = no annotation (the default), `''` = shown but still empty. */
+  annotation?: string;
   position: XY;
   width: number;
   height: number;
@@ -106,6 +117,8 @@ export interface ShapeNode {
   textColor?: string;
   fontSize?: number;
   fontWeight?: number;
+  /** Caption shown centered below the box; undefined = no annotation (the default), `''` = shown but still empty. */
+  annotation?: string;
   position: XY;
   width: number;
   height: number;
@@ -162,6 +175,8 @@ export interface WorkspaceFile {
 
 export const FILE_HEADER_HEIGHT = 40;
 export const FILE_PADDING = 12;
+/** Room kept below an annotated snippet for its caption (one line plus margin), inside the file and before the next snippet. */
+export const ANNOTATION_SPACE = 30;
 export const EDITOR_GAP = 16;
 export const EDITOR_HEADER_HEIGHT = 30;
 export const DEFAULT_EDITOR_WIDTH = 640;
@@ -325,13 +340,18 @@ export function expandToGroup(file: { width: number; height: number }, editor: E
   file.height = FILE_HEADER_HEIGHT + editor.height + FILE_PADDING;
 }
 
+/** Height a snippet takes up in its file: the editor plus the room for its caption, if it has one. */
+export function editorFootprint(e: { height: number; annotation?: string }) {
+  return e.height + (e.annotation !== undefined ? ANNOTATION_SPACE : 0);
+}
+
 /** Smallest file-node size that contains all its editors (group layout). */
-export function fileSizeFor(editors: { position: XY; width: number; height: number }[]) {
+export function fileSizeFor(editors: { position: XY; width: number; height: number; annotation?: string }[]) {
   let width = DEFAULT_EDITOR_WIDTH + FILE_PADDING * 2;
   let height = FILE_HEADER_HEIGHT + FILE_PADDING;
   for (const e of editors) {
     width = Math.max(width, e.position.x + e.width + FILE_PADDING);
-    height = Math.max(height, e.position.y + e.height + FILE_PADDING);
+    height = Math.max(height, e.position.y + editorFootprint(e) + FILE_PADDING);
   }
   return { width, height };
 }
@@ -385,16 +405,17 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
     const n = r as Record<string, any>;
     if (typeof n.id !== 'string') continue;
     const box = { id: n.id, parent: typeof n.parent === 'string' ? n.parent : undefined, position: xy(n.position) };
+    const annotation = typeof n.annotation === 'string' ? n.annotation : undefined; // text and notes have none
     const size = (d: { width: number; height: number }) => ({
       width: Math.max(NODE_SIZE_FLOOR, num(n.width, d.width)),
       height: Math.max(NODE_SIZE_FLOOR, num(n.height, d.height)),
     });
     if (n.type === 'file' && typeof n.file === 'string') {
-      const f: FileNode = { ...box, type: 'file', file: n.file, width: num(n.width, 0), height: num(n.height, 0) };
+      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, width: num(n.width, 0), height: num(n.height, 0) };
       files.push(f);
       boxes.push(f);
     } else if (n.type === 'group') {
-      boxes.push({ ...box, type: 'group', title: typeof n.title === 'string' ? n.title : '', color: color(n.color), ...size(DEFAULT_GROUP_SIZE) });
+      boxes.push({ ...box, type: 'group', title: typeof n.title === 'string' ? n.title : '', color: color(n.color), annotation, ...size(DEFAULT_GROUP_SIZE) });
     } else if (n.type === 'text' || n.type === 'note') {
       const fontSize = Math.round(Number(n.fontSize));
       const fontWeight = Math.round(Number(n.fontWeight) / 100) * 100;
@@ -421,10 +442,11 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
         textColor: color(n.textColor),
         fontSize: fontSize > 0 ? fontSize : undefined,
         fontWeight: fontWeight >= 100 && fontWeight <= 900 ? fontWeight : undefined,
+        annotation,
         ...size(DEFAULT_SHAPE_SIZE),
       });
     } else if (n.type === 'media' && typeof n.src === 'string') {
-      boxes.push({ ...box, type: 'media', src: n.src, ...size({ width: MEDIA_MAX_SIZE, height: MEDIA_MAX_SIZE }) });
+      boxes.push({ ...box, type: 'media', src: n.src, annotation, ...size({ width: MEDIA_MAX_SIZE, height: MEDIA_MAX_SIZE }) });
     } else if (n.type === 'editor' && typeof n.parent === 'string') {
       editors.push({
         id: n.id,
@@ -432,6 +454,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
         parent: n.parent,
         target: range(n.target),
         anchor: typeof n.anchor === 'string' ? n.anchor : undefined,
+        annotation,
         position: xy(n.position, { x: FILE_PADDING, y: FILE_HEADER_HEIGHT }),
         width: Math.max(NODE_SIZE_FLOOR, num(n.width, DEFAULT_EDITOR_WIDTH)),
         height: Math.max(NODE_SIZE_FLOOR, num(n.height, DEFAULT_EDITOR_HEIGHT)),
@@ -575,14 +598,15 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
   const round = (p: XY) => ({ x: Math.round(p.x), y: Math.round(p.y) });
   const rect = (n: WorkspaceNode) => ({ position: round(n.position), width: Math.round(n.width), height: Math.round(n.height) });
   const head = (n: BoxNode) => ({ id: n.id, type: n.type, ...(n.parent !== undefined ? { parent: n.parent } : {}) });
+  const annotation = (n: { annotation?: string }) => (n.annotation !== undefined ? { annotation: n.annotation } : {});
   const out = {
     version: WORKSPACE_VERSION,
     nodes: parentsFirst(workspace.nodes, (n) => n.parent).map((n) => {
       switch (n.type) {
         case 'file':
-          return { ...head(n), file: n.file, ...rect(n) };
+          return { ...head(n), file: n.file, ...annotation(n), ...rect(n) };
         case 'group':
-          return { ...head(n), title: n.title, ...(n.color ? { color: n.color } : {}), ...rect(n) };
+          return { ...head(n), title: n.title, ...(n.color ? { color: n.color } : {}), ...annotation(n), ...rect(n) };
         case 'text':
         case 'note':
           return {
@@ -604,10 +628,11 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
             ...(n.textColor ? { textColor: n.textColor } : {}),
             ...(n.fontSize ? { fontSize: n.fontSize } : {}),
             ...(n.fontWeight ? { fontWeight: n.fontWeight } : {}),
+            ...annotation(n),
             ...rect(n),
           };
         case 'media':
-          return { ...head(n), src: n.src, ...rect(n) };
+          return { ...head(n), src: n.src, ...annotation(n), ...rect(n) };
         case 'editor':
           return {
             id: n.id,
@@ -615,6 +640,7 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
             parent: n.parent,
             ...(n.target ? { target: { start: n.target.start, end: n.target.end } } : {}),
             ...(n.target && n.anchor !== undefined ? { anchor: n.anchor } : {}),
+            ...annotation(n),
             ...rect(n),
           };
       }
@@ -718,7 +744,7 @@ export function findFreePosition(
 /** Where the next editor inside a file node goes: below the existing ones. */
 export function nextEditorSlot(editors: EditorNode[]): XY {
   if (!editors.length) return { x: FILE_PADDING, y: FILE_HEADER_HEIGHT };
-  const bottom = Math.max(...editors.map((e) => e.position.y + e.height));
+  const bottom = Math.max(...editors.map((e) => e.position.y + editorFootprint(e)));
   return { x: FILE_PADDING, y: bottom + EDITOR_GAP };
 }
 

@@ -62,40 +62,43 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: NodePro
   const tone = data.color ? (isLightColor(data.color) ? ' on-light' : ' on-dark') : '';
 
   return (
-    <div className={`pw-group${selected ? ' selected' : ''}${data.color ? ' colored' : ''}${tone}`} style={style}>
-      <NodeResizer
-        isVisible={selected}
-        minWidth={Math.max(ctx.config.minNodeWidth, extent.w)}
-        minHeight={Math.max(ctx.config.minNodeHeight, extent.h)}
-        lineClassName="pw-resize-line"
-        handleClassName="pw-resize-handle"
-      />
-      <BoardToolbar id={id} colors={[{ key: 'color', kind: 'background', value: data.color, allowDefault: true }]} group />
-      <NodeHandles />
-      <header
-        className="pw-group-header"
-        onDoubleClick={() => setEditing(true)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          ctx.openNodeMenu(id, e.clientX, e.clientY);
-        }}
-      >
-        {editing ? (
-          <TitleInput
-            value={data.title}
-            onDone={(title) => {
-              setEditing(false);
-              if (title !== data.title) ctx.updateData(id, { title });
-            }}
-          />
-        ) : (
-          <span className={`pw-group-title${data.title ? '' : ' empty'}`} title="Double-click to rename">
-            {data.title || 'Untitled group'}
-          </span>
-        )}
-      </header>
-    </div>
+    <>
+      <div className={`pw-group${selected ? ' selected' : ''}${data.color ? ' colored' : ''}${tone}`} style={style}>
+        <NodeResizer
+          isVisible={selected}
+          minWidth={Math.max(ctx.config.minNodeWidth, extent.w)}
+          minHeight={Math.max(ctx.config.minNodeHeight, extent.h)}
+          lineClassName="pw-resize-line"
+          handleClassName="pw-resize-handle"
+        />
+        <BoardToolbar id={id} colors={[{ key: 'color', kind: 'background', value: data.color, allowDefault: true }]} annotation={data.annotation} group />
+        <NodeHandles />
+        <header
+          className="pw-group-header"
+          onDoubleClick={() => setEditing(true)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            ctx.openNodeMenu(id, e.clientX, e.clientY);
+          }}
+        >
+          {editing ? (
+            <TitleInput
+              value={data.title}
+              onDone={(title) => {
+                setEditing(false);
+                if (title !== data.title) ctx.updateData(id, { title });
+              }}
+            />
+          ) : (
+            <span className={`pw-group-title${data.title ? '' : ' empty'}`} title="Double-click to rename">
+              {data.title || 'Untitled group'}
+            </span>
+          )}
+        </header>
+      </div>
+      <Annotation id={id} value={data.annotation} />
+    </>
   );
 });
 
@@ -251,6 +254,59 @@ export function TextEditor(props: { value: string; onDone(v: string): void }) {
   );
 }
 
+// ---- annotation -----------------------------------------------------------------------------------
+
+/** Annotations that start in edit mode when they appear (just turned on). */
+const editAnnotationOnMount = new Set<string>();
+
+/** Turn a node's annotation on (and start typing in it) or off (removing its text). */
+export function useToggleAnnotation(id: string, value: string | undefined) {
+  const ctx = useWorkspace();
+  return () => {
+    if (value !== undefined) return ctx.setAnnotation(id, undefined);
+    editAnnotationOnMount.add(id);
+    ctx.setAnnotation(id, '');
+  };
+}
+
+/**
+ * Optional caption centered below a file, group, shape or media node, like the caption under an image in an article.
+ * It hangs outside the node's box, so it never changes the node's size; `inline` puts it in the normal flow instead.
+ */
+export function Annotation(props: { id: string; value?: string; inline?: boolean }) {
+  // Mount the caption only while there is an annotation, so turning it on starts editing (see useToggleAnnotation).
+  return props.value === undefined ? null : <AnnotationCaption id={props.id} value={props.value} inline={props.inline} />;
+}
+
+function AnnotationCaption(props: { id: string; value: string; inline?: boolean }) {
+  const ctx = useWorkspace();
+  const [editing, setEditing] = useState(() => editAnnotationOnMount.delete(props.id));
+  return (
+    <div
+      className={`pw-annotation${props.inline ? ' inline' : ''}${editing ? ' editing' : ''}`}
+      title={editing ? undefined : 'Annotation (double-click to edit)'}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        setEditing(true);
+      }}
+    >
+      {editing ? (
+        <TextEditor
+          value={props.value}
+          onDone={(annotation) => {
+            setEditing(false);
+            if (annotation !== props.value) ctx.setAnnotation(props.id, annotation);
+          }}
+        />
+      ) : props.value ? (
+        props.value
+      ) : (
+        <span className="pw-text-placeholder">Add an annotation</span>
+      )}
+    </div>
+  );
+}
+
 // ---- shape ----------------------------------------------------------------------------------------
 
 const SHAPE_STROKE_WIDTH = 2;
@@ -306,32 +362,40 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected, width, he
     if (text !== data.text) ctx.updateData(id, { text });
   };
 
+  // Under a stick figure the label already sits below the shape, so the annotation follows it there.
+  const annotation = <Annotation id={id} value={data.annotation} inline={def.labelBelow} />;
+
   return (
-    <div
-      className={`pw-shape${selected ? ' selected' : ''}${editing ? ' editing' : ''}`}
-      onDoubleClick={() => setEditing(true)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        ctx.openNodeMenu(id, e.clientX, e.clientY);
-      }}
-    >
-      <NodeResizer isVisible={selected && !editing} minWidth={NODE_SIZE_FLOOR} minHeight={NODE_SIZE_FLOOR} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
-      <BoardToolbar
-        id={id}
-        colors={[
-          { key: 'color', kind: 'background', label: 'Fill color', value: data.color, fallback: DEFAULT_SHAPE_FILL, allowNone: true },
-          { key: 'strokeColor', kind: 'stroke', label: 'Line color', value: data.strokeColor, fallback: autoStroke, allowDefault: true },
-          { key: 'textColor', kind: 'text', value: data.textColor, allowDefault: true, fallback: autoText ?? '#f0f0f0' },
-        ]}
-        font={{ size: fontSize, weight: fontWeight }}
-      />
-      <NodeHandles />
-      <ShapeSvg className="pw-shape-svg" def={def} width={w} height={h} fill={fill} stroke={stroke} />
-      <div className={`pw-shape-label${def.labelBelow ? ' below' : ''}${onCanvas && !data.textColor ? ' on-canvas' : ''}`} style={labelStyle}>
-        {editing ? <TextEditor value={data.text} onDone={finish} /> : data.text}
+    <>
+      <div
+        className={`pw-shape${selected ? ' selected' : ''}${editing ? ' editing' : ''}`}
+        onDoubleClick={() => setEditing(true)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          ctx.openNodeMenu(id, e.clientX, e.clientY);
+        }}
+      >
+        <NodeResizer isVisible={selected && !editing} minWidth={NODE_SIZE_FLOOR} minHeight={NODE_SIZE_FLOOR} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
+        <BoardToolbar
+          id={id}
+          colors={[
+            { key: 'color', kind: 'background', label: 'Fill color', value: data.color, fallback: DEFAULT_SHAPE_FILL, allowNone: true },
+            { key: 'strokeColor', kind: 'stroke', label: 'Line color', value: data.strokeColor, fallback: autoStroke, allowDefault: true },
+            { key: 'textColor', kind: 'text', value: data.textColor, allowDefault: true, fallback: autoText ?? '#f0f0f0' },
+          ]}
+          font={{ size: fontSize, weight: fontWeight }}
+          annotation={data.annotation}
+        />
+        <NodeHandles />
+        <ShapeSvg className="pw-shape-svg" def={def} width={w} height={h} fill={fill} stroke={stroke} />
+        <div className={`pw-shape-label${def.labelBelow ? ' below' : ''}${onCanvas && !data.textColor ? ' on-canvas' : ''}`} style={labelStyle}>
+          {editing ? <TextEditor value={data.text} onDone={finish} /> : data.text}
+          {def.labelBelow && annotation}
+        </div>
       </div>
-    </div>
+      {!def.labelBelow && annotation}
+    </>
   );
 });
 
@@ -345,34 +409,37 @@ export const MediaNode = memo(function MediaNode({ id, data, selected }: NodePro
   useEffect(() => setFailed(false), [url]);
 
   return (
-    <div
-      className={`pw-media${selected ? ' selected' : ''}${video ? ' video' : ''}`}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        ctx.openNodeMenu(id, e.clientX, e.clientY);
-      }}
-    >
-      <NodeResizer isVisible={selected} keepAspectRatio minWidth={40} minHeight={40} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
-      <BoardToolbar id={id} />
-      <NodeHandles />
-      {video && (
-        <div className="pw-media-grip" title={data.src}>
-          <span className="codicon codicon-device-camera-video" />
-          <span className="pw-media-name">{baseName(data.src)}</span>
-        </div>
-      )}
-      {failed || !url ? (
-        <div className="pw-media-error">
-          <span className="codicon codicon-warning" />
-          Cannot show {data.src.startsWith('data:') ? 'this media' : baseName(data.src)}
-        </div>
-      ) : video ? (
-        <video className="nodrag nowheel" src={url} controls preload="metadata" onError={() => setFailed(true)} />
-      ) : (
-        <img src={url} alt={baseName(data.src)} draggable={false} onError={() => setFailed(true)} />
-      )}
-    </div>
+    <>
+      <div
+        className={`pw-media${selected ? ' selected' : ''}${video ? ' video' : ''}`}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          ctx.openNodeMenu(id, e.clientX, e.clientY);
+        }}
+      >
+        <NodeResizer isVisible={selected} keepAspectRatio minWidth={40} minHeight={40} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
+        <BoardToolbar id={id} annotation={data.annotation} />
+        <NodeHandles />
+        {video && (
+          <div className="pw-media-grip" title={data.src}>
+            <span className="codicon codicon-device-camera-video" />
+            <span className="pw-media-name">{baseName(data.src)}</span>
+          </div>
+        )}
+        {failed || !url ? (
+          <div className="pw-media-error">
+            <span className="codicon codicon-warning" />
+            Cannot show {data.src.startsWith('data:') ? 'this media' : baseName(data.src)}
+          </div>
+        ) : video ? (
+          <video className="nodrag nowheel" src={url} controls preload="metadata" onError={() => setFailed(true)} />
+        ) : (
+          <img src={url} alt={baseName(data.src)} draggable={false} onError={() => setFailed(true)} />
+        )}
+      </div>
+      <Annotation id={id} value={data.annotation} />
+    </>
   );
 });
 
@@ -395,12 +462,15 @@ type ColorSlot = {
 
 type Popup = ColorSlot['key'] | 'size' | 'weight';
 
-function BoardToolbar(props: { id: string; colors?: ColorSlot[]; font?: { size: number; weight: number }; group?: boolean }) {
+/** Passing `annotation` (the node's current one, even undefined) adds the annotation toggle; text and notes leave it out. */
+function BoardToolbar(props: { id: string; colors?: ColorSlot[]; font?: { size: number; weight: number }; group?: boolean; annotation?: string }) {
   const ctx = useWorkspace();
   const [open, setOpen] = useState<Popup | null>(null);
   const toggle = (p: Popup) => setOpen((o) => (o === p ? null : p));
   const close = useCallback(() => setOpen(null), []);
   const slot = props.colors?.find((c) => c.key === open);
+  const toggleAnnotation = useToggleAnnotation(props.id, props.annotation);
+  const annotatable = 'annotation' in props;
 
   return (
     <NodeToolbar position={Position.Top} offset={10} className="pw-node-toolbar" onPointerDown={stop} onDoubleClick={stop}>
@@ -459,6 +529,11 @@ function BoardToolbar(props: { id: string; colors?: ColorSlot[]; font?: { size: 
             />
             <span className="pw-node-toolbar-sep" />
           </>
+        )}
+        {annotatable && (
+          <ToolbarButton label={props.annotation !== undefined ? 'Remove annotation' : 'Add annotation'} active={props.annotation !== undefined} onClick={toggleAnnotation}>
+            <span className="codicon codicon-comment" />
+          </ToolbarButton>
         )}
         {props.group && (
           <ToolbarButton label="Ungroup (keep the content)" onClick={() => ctx.ungroup(props.id)}>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ANNOTATION_SPACE,
   EDITOR_GAP,
   FILE_HEADER_HEIGHT,
   FILE_PADDING,
@@ -8,9 +9,11 @@ import {
   editorHeightFor,
   editorsOf,
   emptyWorkspace,
+  fileSizeFor,
   findFreePosition,
   isEditorNode,
   isFileNode,
+  nextEditorSlot,
   parseWorkspace,
   relocateRange,
   restack,
@@ -118,6 +121,45 @@ describe('parseWorkspace / serializeWorkspace', () => {
     expect(saved[2]).toEqual({ id: 'defaults', source: 's2', target: 's1' });
     const text = serializeWorkspace(workspace);
     expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
+  });
+
+  it('annotations: kept on files, groups, shapes and media (even empty), left out when off, ignored on text and notes', () => {
+    const { workspace } = parseWorkspace(
+      JSON.stringify({
+        nodes: [
+          { id: 'f', type: 'file', file: 'a.ts', annotation: 'entry point' },
+          { id: 'g', type: 'group', title: 'G', annotation: '' },
+          { id: 's', type: 'shape', shape: 'rectangle', text: '', annotation: 'step 1' },
+          { id: 'm', type: 'media', src: 'x.png', annotation: 'screenshot' },
+          { id: 'n', type: 'note', text: 'x', annotation: 'dropped' },
+          { id: 't', type: 'text', text: 'y', annotation: 'dropped' },
+          { id: 'plain', type: 'group', title: 'P' },
+        ],
+      }),
+    );
+    const saved = JSON.parse(serializeWorkspace(workspace)).nodes;
+    const byId = Object.fromEntries(saved.map((n: { id: string }) => [n.id, n]));
+    expect(['f', 'g', 's', 'm'].map((id) => byId[id].annotation)).toEqual(['entry point', '', 'step 1', 'screenshot']);
+    for (const id of ['n', 't', 'plain']) expect(byId[id]).not.toHaveProperty('annotation');
+    const text = serializeWorkspace(workspace);
+    expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
+  });
+
+  it('snippet annotations: saved, and their caption space counts in the file size and the next snippet slot', () => {
+    const { workspace } = parseWorkspace(
+      JSON.stringify({
+        nodes: [
+          { id: 'f', type: 'file', file: 'a.ts' },
+          { id: 'e1', type: 'editor', parent: 'f', position: { x: 12, y: 40 }, width: 640, height: 200, annotation: 'the reducer' },
+          { id: 'e2', type: 'editor', parent: 'f', position: { x: 12, y: 300 }, width: 640, height: 100 },
+        ],
+      }),
+    );
+    const [e1, e2] = editorsOf(workspace, 'f');
+    expect(JSON.parse(serializeWorkspace(workspace)).nodes[1].annotation).toBe('the reducer');
+    expect(fileSizeFor([e1]).height).toBe(40 + 200 + ANNOTATION_SPACE + FILE_PADDING);
+    expect(nextEditorSlot([e1]).y).toBe(40 + 200 + ANNOTATION_SPACE + EDITOR_GAP);
+    expect(nextEditorSlot([e1, e2]).y).toBe(300 + 100 + EDITOR_GAP);
   });
 
   it('migrates v1 flat code nodes to a file node with one targeted editor', () => {

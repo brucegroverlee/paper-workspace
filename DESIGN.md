@@ -144,6 +144,14 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
 * **Media**: images and videos. Picked files inside the paper root are referenced; files outside it, pasted and
   dropped bytes are written to `.paperworkspace/media/`. The webview reads them through `mediaRoot` (the root is a
   `localResourceRoot`).
+* **Annotations**: files, groups, shapes and media can carry an `annotation`, a small italic caption centered below the
+  box (like an image caption; under a stick figure it follows the label). It is off by default (no key in the file);
+  the comment button in the file header or the node toolbar adds it (`""` until typed) or removes it with its text.
+  Double-click to edit. Text and notes have none, being text already. It hangs outside the box, so sizes, group
+  fitting and links ignore it.
+  Snippets (editors in a multi-snippet file) have one too, from their header. Their caption stays inside the file:
+  an annotated snippet reserves `ANNOTATION_SPACE` below it (file size, next snippet slot), and turning a caption on
+  pushes the snippets under it down. When a file collapses to one snippet, that snippet's caption joins the file's.
 * Colors come from a fixed palette (dark and pastel rows) or a custom color, edited from the toolbar shown above the
   selected node.
 

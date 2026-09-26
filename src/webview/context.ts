@@ -4,17 +4,18 @@ import type { LineRange, WorkspaceEdge } from '../shared/workspace';
 import type { CanvasConfig, EditorSettings } from '../shared/protocol';
 import { docStore } from './docStore';
 
-export type FileNodeData = { file: string };
+export type FileNodeData = { file: string; annotation?: string };
 export type EditorNodeData = {
   /** Copied from the parent file node for convenience. */
   file: string;
   target?: LineRange;
   anchor?: string;
+  annotation?: string;
 };
 
-export type GroupNodeData = { title: string; color?: string };
+export type GroupNodeData = { title: string; color?: string; annotation?: string };
 export type TextNodeData = { text: string; color?: string; textColor?: string; fontSize?: number; fontWeight?: number };
-export type MediaNodeData = { src: string };
+export type MediaNodeData = { src: string; annotation?: string };
 export type ShapeNodeData = {
   shape: string;
   text: string;
@@ -24,6 +25,7 @@ export type ShapeNodeData = {
   textColor?: string;
   fontSize?: number;
   fontWeight?: number;
+  annotation?: string;
 };
 
 export type RFFileNode = Node<FileNodeData, 'file'>;
@@ -51,6 +53,8 @@ export interface WorkspaceActions {
   remove(id: string): void;
   /** Change a group/text/note/shape's title, text, colors or font. */
   updateData(id: string, patch: BoardDataPatch): void;
+  /** Show (`''` or text) or remove (undefined) the caption below a file, snippet, group, shape or media node. */
+  setAnnotation(id: string, annotation: string | undefined): void;
   /** Change a link's look or label. */
   updateLink(id: string, patch: Partial<LinkData>): void;
   /** Swap a link's ends, so its arrow points the other way. */
