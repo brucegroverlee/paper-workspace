@@ -380,13 +380,15 @@ body {
   pointer-events: auto;
 }
 
-/* The paper being typed in or pointed at stays above its neighbors, so its hovers and suggestions are not covered
-   by them. Widgets are DOM children of their paper, so moving the mouse onto one keeps the paper hovered.
+/* The paper being typed in stays above its neighbors, so its suggestions are not covered by them. Merely pointing
+   at a paper does not raise it (a paper behind others must not jump over them; clicking selects and raises it),
+   except while it shows a Monaco hover, which would otherwise be covered. Widgets are DOM children of their paper,
+   so moving the mouse onto one keeps the paper hovered.
    Containers (file nodes, groups) are excluded: raising one would lift its translucent body over its children.
    The value must exceed React Flow's selection elevation (1000 + stacking order + nesting depth); otherwise a
    hovered child of a selected container drops to its parent's level, gets covered, loses :hover and flickers. */
 .react-flow__node:not(.react-flow__node-file, .react-flow__node-group):focus-within,
-.react-flow__node:not(.react-flow__node-file, .react-flow__node-group):hover {
+.react-flow__node:not(.react-flow__node-file, .react-flow__node-group):hover:has(.monaco-hover:not(.hidden)) {
   z-index: 100000 !important;
 }
 
