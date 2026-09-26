@@ -1553,9 +1553,13 @@ kbd {
   background: var(--pw-accent);
 }
 
+/* Hidden but still laid out: React Flow measures handle positions with getBoundingClientRect, and a display:none
+   handle reports 0,0, which puts link ends at arbitrary offsets for nodes measured in this state (e.g. mounted
+   while panning with onlyRenderVisibleElements). */
 .pw-canvas.tool-hand .pw-handle,
 .react-flow__node.dragging .pw-handle {
-  display: none;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .pw-link-halo {
