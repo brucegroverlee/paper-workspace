@@ -504,6 +504,12 @@ export function App() {
         case 'mediaAdded':
           void addMedia(m.srcs, m.position);
           break;
+        case 'fileRelinked':
+          // Snippet targets are re-found in the new file by their anchor line once it loads.
+          updateNodes((ns) =>
+            ns.map((n) => ((isFile(n) || isEditor(n)) && n.data.file === m.file ? ({ ...n, data: { ...n.data, file: m.newFile } } as RFNode) : n)),
+          );
+          break;
         case 'restoreFocus':
           // Only give the caret back if it was in an editor; selecting a node alone must not focus code.
           if (refocusEditor.current) focusLastEditor();
@@ -813,6 +819,7 @@ export function App() {
         rf.fitView({ nodes: [{ id: visibleNodeId(nodesRef.current, id) }], padding: 100 / config.focusPercent - 1, duration: 300 }),
       openInEditor: (file, line) => host.postMessage({ type: 'openInEditor', file, line }),
       goToDefinition: (file, line, column) => host.postMessage({ type: 'goToDefinition', file, line, column }),
+      relinkFile: (file) => host.postMessage({ type: 'relinkFile', file }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, config, rf, setNodes, setEdges, commit, updateNodes, revealInExplorer]);

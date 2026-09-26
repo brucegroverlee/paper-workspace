@@ -461,6 +461,88 @@ body {
   white-space: normal;
 }
 
+/* A file that was deleted or moved: dashed warning border, struck-through path, and a panel instead of code. */
+.pw-file.missing:not(.selected) {
+  border-style: dashed;
+  border-color: var(--pw-dirty);
+}
+
+.pw-file.missing .pw-path {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.pw-missing-badge {
+  flex: none;
+  color: var(--pw-dirty);
+}
+
+.pw-missing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  overflow: auto;
+  text-align: center;
+  white-space: normal;
+  color: var(--pw-muted);
+  font-family: var(--pw-font);
+  font-size: 13px;
+}
+
+.pw-missing-icon.codicon {
+  font-size: 28px;
+  color: var(--pw-dirty);
+}
+
+.pw-missing-title {
+  font-weight: 600;
+  color: var(--pw-fg);
+}
+
+.pw-missing-text code {
+  color: var(--pw-fg);
+  word-break: break-all;
+}
+
+.pw-missing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.pw-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--vscode-button-border, var(--pw-paper-border));
+  border-radius: 2px;
+  background: var(--vscode-button-secondaryBackground, #3a3d41);
+  color: var(--vscode-button-secondaryForeground, #cccccc);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pw-button:hover {
+  background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+.pw-button.primary {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #ffffff);
+}
+
+.pw-button.primary:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
 /* Resizers (shown on the selected node). */
 .react-flow__resize-control.line.pw-resize-line {
   border-color: transparent;

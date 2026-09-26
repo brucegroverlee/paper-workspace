@@ -47,6 +47,8 @@ export type HostToWebview =
       eol?: '\n' | '\r\n';
       dirty?: boolean;
       error?: string;
+      /** The file was deleted or moved: nodes showing it offer to find it again or to be removed. */
+      missing?: boolean;
     }
   /** A change made outside this canvas (native editor, another canvas, git, formatter...). */
   | { type: 'docChanged'; file: string; changes: TextChange[]; length: number; dirty: boolean }
@@ -61,6 +63,8 @@ export type HostToWebview =
   | { type: 'mediaAdded'; srcs: string[]; position: XY }
   /** Answer to a `language` request (`result` is null when no provider had anything). */
   | { type: 'languageResult'; id: number; result: LanguageResult }
+  /** Answer to `relinkFile`: nodes showing `file` now show `newFile`. */
+  | { type: 'fileRelinked'; file: string; newFile: string }
   /** VS Code's current problems for a file shown on the canvas. */
   | { type: 'diagnostics'; file: string; diagnostics: DiagnosticJson[] };
 
@@ -84,5 +88,7 @@ export type WebviewToHost =
   | { type: 'pickMedia'; position: XY }
   /** Store pasted or dropped media (base64) under `.paperworkspace/media/<workspace>`; answered with `mediaAdded`. */
   | { type: 'saveMedia'; name: string; mime: string; data: string; position: XY }
+  /** Let the user pick a replacement for a missing file; answered with `fileRelinked` (nothing if cancelled). */
+  | { type: 'relinkFile'; file: string }
   /** IntelliSense for a paper, answered by VS Code's language providers with `languageResult`. */
   | { type: 'language'; id: number; file: string; request: LanguageRequest };

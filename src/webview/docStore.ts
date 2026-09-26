@@ -8,6 +8,8 @@ export interface DocEntry {
   model?: monaco.editor.ITextModel;
   languageId?: string;
   error?: string;
+  /** The file was deleted or moved away; the last known text stays in `model` until it comes back. */
+  missing?: boolean;
   dirty: boolean;
   /** Bumped on every content/state change so React can subscribe cheaply. */
   version: number;
@@ -126,6 +128,8 @@ export class DocStore {
     const entry = this.docs.get(m.file) ?? { file: m.file, dirty: false, version: 0, pendingLocal: 0, applyingRemote: false };
     this.docs.set(m.file, entry);
     entry.error = m.error;
+    entry.missing = !!m.missing;
+    if (m.missing) return this.notify(entry); // keep the language badge and last text
     entry.dirty = !!m.dirty;
     entry.languageId = m.languageId;
     if (m.text !== undefined) {

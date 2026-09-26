@@ -78,8 +78,9 @@ function linkRangeAt(model: monaco.editor.ITextModel, e: monaco.editor.IEditorMo
 
 // ---- node -------------------------------------------------------------------------------------------
 
-export const EditorNode = memo(function EditorNode({ id, data, selected }: NodeProps<RFEditorNode>) {
+export const EditorNode = memo(function EditorNode({ id, data, selected, parentId }: NodeProps<RFEditorNode>) {
   const ctx = useWorkspace();
+  const missing = !!useDoc(data.file)?.missing;
   const toggleAnnotation = useToggleAnnotation(id, data.annotation);
   return (
     <>
@@ -95,7 +96,7 @@ export const EditorNode = memo(function EditorNode({ id, data, selected }: NodeP
           }}
         >
           <span className="codicon codicon-symbol-snippet pw-editor-icon" />
-          <TargetControls id={id} data={data} />
+          {missing ? <span className="pw-spacer" /> : <TargetControls id={id} data={data} />}
           <button
             className={`pw-icon nodrag${data.annotation !== undefined ? ' active' : ''}`}
             title={data.annotation !== undefined ? 'Remove annotation' : 'Add annotation'}
@@ -107,14 +108,16 @@ export const EditorNode = memo(function EditorNode({ id, data, selected }: NodeP
           <button className="pw-icon nodrag" title="Focus on this paper" onClick={() => ctx.focusNode(id)}>
             <span className="codicon codicon-zoom-in" />
           </button>
-          <button className="pw-icon nodrag" title="Open in text editor" onClick={() => ctx.openInEditor(data.file, data.target?.start ?? 1)}>
-            <span className="codicon codicon-go-to-file" />
-          </button>
+          {!missing && (
+            <button className="pw-icon nodrag" title="Open in text editor" onClick={() => ctx.openInEditor(data.file, data.target?.start ?? 1)}>
+              <span className="codicon codicon-go-to-file" />
+            </button>
+          )}
           <button className="pw-icon nodrag" title="Remove this snippet" onClick={() => ctx.remove(id)}>
             <span className="codicon codicon-close" />
           </button>
         </header>
-        <EditorBody id={id} data={data} />
+        <EditorBody id={id} data={data} fileNodeId={parentId!} />
       </div>
       <Annotation id={id} value={data.annotation} />
     </>
@@ -161,7 +164,7 @@ export function TargetControls({ id, data }: { id: string; data: EditorNodeData 
 }
 
 /** The code area of an editor: a live Monaco editor, or a static preview when zoomed far out. */
-export function EditorBody({ id, data }: { id: string; data: EditorNodeData }) {
+export function EditorBody({ id, data, fileNodeId }: { id: string; data: EditorNodeData; fileNodeId: string }) {
   const ctx = useWorkspace();
   const doc = useDoc(data.file);
   const zoom = useStore(zoomSelector);
@@ -194,7 +197,9 @@ export function EditorBody({ id, data }: { id: string; data: EditorNodeData }) {
   return (
     // The preview is static (no editing or scrolling), so it drags the node like the rest of the paper.
     <div ref={body} className={`pw-editor-body ${live ? 'nodrag nopan nowheel' : 'preview'}`}>
-      {doc?.error ? (
+      {doc?.missing ? (
+        <MissingFile file={data.file} fileNodeId={fileNodeId} />
+      ) : doc?.error ? (
         <div className="pw-error">{doc.error}</div>
       ) : !doc?.model ? (
         <div className="pw-loading">Loading…</div>
@@ -210,6 +215,28 @@ export function EditorBody({ id, data }: { id: string; data: EditorNodeData }) {
       ) : (
         <Preview id={id} model={doc.model} version={doc.version} target={data.target} settings={ctx.settings} />
       )}
+    </div>
+  );
+}
+
+/** Shown instead of the code when the file was deleted or moved: find it again, or drop it from the canvas. */
+function MissingFile({ file, fileNodeId }: { file: string; fileNodeId: string }) {
+  const ctx = useWorkspace();
+  return (
+    <div className="pw-missing">
+      <span className="codicon codicon-warning pw-missing-icon" />
+      <div className="pw-missing-title">File not found</div>
+      <div className="pw-missing-text">
+        <code>{file}</code> was deleted or moved. Find the file it should show, or remove it from the canvas.
+      </div>
+      <div className="pw-missing-actions">
+        <button className="pw-button primary nodrag" onClick={() => ctx.relinkFile(file)}>
+          <span className="codicon codicon-search" /> Find file…
+        </button>
+        <button className="pw-button nodrag" onClick={() => ctx.remove(fileNodeId)}>
+          <span className="codicon codicon-trash" /> Remove from canvas
+        </button>
+      </div>
     </div>
   );
 }

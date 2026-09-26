@@ -41,15 +41,16 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
   const minWidth = single ? minNodeWidth : Math.max(minNodeWidth, extent.w);
   const minHeight = single ? minNodeHeight : Math.max(minNodeHeight, extent.h);
   const toggleAnnotation = useToggleAnnotation(id, data.annotation);
+  const missing = !!doc?.missing;
 
   return (
     <>
-      <div className={`pw-file${single ? ' single' : ''}${selected ? ' selected' : ''}`}>
+      <div className={`pw-file${single ? ' single' : ''}${selected ? ' selected' : ''}${missing ? ' missing' : ''}`}>
         <NodeResizer isVisible={selected} minWidth={minWidth} minHeight={minHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
         <NodeHandles />
         <header
           className="pw-file-header"
-          onDoubleClick={() => ctx.openInEditor(data.file, single?.data.target?.start ?? 1)}
+          onDoubleClick={() => !missing && ctx.openInEditor(data.file, single?.data.target?.start ?? 1)}
           onContextMenu={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -57,15 +58,18 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
           }}
         >
           <span className={`pw-badge lang-${doc?.languageId ?? 'unknown'}`}>{languageBadge(doc?.languageId, data.file)}</span>
-          <span className="pw-path" title={path}>
+          {missing && <span className="codicon codicon-warning pw-missing-badge" title="File not found: it was deleted or moved" />}
+          <span className="pw-path" title={missing ? `${path} (not found)` : path}>
             {slash >= 0 && <span className="pw-dir">{path.slice(0, slash + 1)}</span>}
             <span className="pw-base">{path.slice(slash + 1)}</span>
           </span>
           {doc?.dirty && <span className="pw-dirty" title="Unsaved changes (Ctrl+S saves all)" />}
-          {single ? <TargetControls id={single.id} data={single.data} /> : <span className="pw-spacer" />}
-          <button className="pw-icon nodrag" title="Add a snippet editor for this file" onClick={() => ctx.addEditor(id)}>
-            <span className="codicon codicon-add" />
-          </button>
+          {single && !missing ? <TargetControls id={single.id} data={single.data} /> : <span className="pw-spacer" />}
+          {!missing && (
+            <button className="pw-icon nodrag" title="Add a snippet editor for this file" onClick={() => ctx.addEditor(id)}>
+              <span className="codicon codicon-add" />
+            </button>
+          )}
           <button
             className={`pw-icon nodrag${data.annotation !== undefined ? ' active' : ''}`}
             title={data.annotation !== undefined ? 'Remove annotation' : 'Add annotation'}
@@ -77,14 +81,20 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
           <button className="pw-icon nodrag" title="Focus on this paper" onClick={() => ctx.focusNode(id)}>
             <span className="codicon codicon-zoom-in" />
           </button>
-          <button className="pw-icon nodrag" title="Open in text editor" onClick={() => ctx.openInEditor(data.file, single?.data.target?.start ?? 1)}>
-            <span className="codicon codicon-go-to-file" />
-          </button>
+          {missing ? (
+            <button className="pw-icon nodrag" title="Find the file to show instead" onClick={() => ctx.relinkFile(data.file)}>
+              <span className="codicon codicon-search" />
+            </button>
+          ) : (
+            <button className="pw-icon nodrag" title="Open in text editor" onClick={() => ctx.openInEditor(data.file, single?.data.target?.start ?? 1)}>
+              <span className="codicon codicon-go-to-file" />
+            </button>
+          )}
           <button className="pw-icon nodrag" title="Remove file from canvas" onClick={() => ctx.remove(id)}>
             <span className="codicon codicon-close" />
           </button>
         </header>
-        {single && <EditorBody id={single.id} data={single.data} />}
+        {single && <EditorBody id={single.id} data={single.data} fileNodeId={id} />}
       </div>
       <Annotation id={id} value={data.annotation} />
     </>

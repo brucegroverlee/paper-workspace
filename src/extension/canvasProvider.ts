@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { MEDIA_EXTS, isMediaPath, parseWorkspace, serializeWorkspace } from '../shared/workspace';
+import { MEDIA_EXTS, WORKSPACE_DIR, isMediaPath, parseWorkspace, serializeWorkspace } from '../shared/workspace';
 import type { HostToWebview, TextChange, WebviewToHost } from '../shared/protocol';
 import type { LanguageRequest } from '../shared/language';
-import { WorkspaceStore, canvasConfig, editorSettings, replaceDocument, updateCanvasConfig } from './workspaceStore';
+import { WorkspaceStore, canvasConfig, editorSettings, exists, replaceDocument, updateCanvasConfig } from './workspaceStore';
 import type { TakeoverController } from './takeover';
 import { findDefinition } from './definition';
 import { LanguageBridge, diagnosticsFor } from './language';
@@ -65,6 +65,8 @@ class CanvasSession {
   private readonly queue: HostToWebview[] = [];
   /** workspace `file` key -> resolved document URI string. */
   private readonly files = new Map<string, string>();
+  /** workspace `file` key -> URI of a file that no longer exists; reopened if it comes back (undo, git checkout...). */
+  private readonly missing = new Map<string, vscode.Uri>();
   /** Documents currently being edited from this webview; their change events must not echo back. */
   private readonly applying = new Map<string, number>();
   private readonly editQueues = new Map<string, Promise<void>>();
@@ -84,7 +86,12 @@ class CanvasSession {
     panel.webview.options = { enableScripts: true, localResourceRoots: [distUri, store.rootFor(document.uri)] };
     panel.webview.html = this.html(distUri);
 
+    // Deletions from anywhere (Explorer, terminal, git); changes are already covered by the documents.
+    const watcher = vscode.workspace.createFileSystemWatcher('**/*', false, true, false);
     this.disposables.push(
+      watcher,
+      watcher.onDidDelete((uri) => this.onFileDeleted(uri)),
+      watcher.onDidCreate((uri) => this.onFileCreated(uri)),
       panel.webview.onDidReceiveMessage((m: WebviewToHost) => this.onMessage(m)),
       vscode.workspace.onDidChangeTextDocument((e) => this.onDocumentChanged(e)),
       vscode.workspace.onDidSaveTextDocument((doc) => this.onDocumentSaved(doc)),
@@ -237,6 +244,9 @@ class CanvasSession {
       case 'nodeFocused':
         this.scheduleExplorerReveal(m.file);
         break;
+      case 'relinkFile':
+        await this.relinkFile(m.file);
+        break;
     }
   }
 
@@ -326,6 +336,9 @@ class CanvasSession {
 
   private async openDoc(file: string) {
     const uri = this.store.resolveWorkspacePath(this.document.uri, file);
+    // Checked first: VS Code keeps serving a deleted file's document while an editor still has it open.
+    if (!(await exists(uri))) return this.markMissing(file, uri);
+    this.missing.delete(file);
     try {
       const doc = await vscode.workspace.openTextDocument(uri);
       this.files.set(file, doc.uri.toString());
@@ -341,6 +354,72 @@ class CanvasSession {
     } catch (e) {
       this.post({ type: 'doc', file, error: `Cannot open ${file}: ${(e as Error).message}` });
     }
+  }
+
+  private markMissing(file: string, uri: vscode.Uri) {
+    this.files.delete(file);
+    this.missing.set(file, uri);
+    this.post({ type: 'doc', file, missing: true });
+  }
+
+  /** A file (or a folder containing files) shown on the canvas was deleted or moved away. */
+  private onFileDeleted(uri: vscode.Uri) {
+    for (const [file, s] of [...this.files]) {
+      const fileUri = vscode.Uri.parse(s);
+      if (isSameOrInside(fileUri, uri)) this.markMissing(file, fileUri);
+    }
+  }
+
+  private onFileCreated(uri: vscode.Uri) {
+    for (const [file, missingUri] of [...this.missing]) {
+      if (isSameOrInside(missingUri, uri)) void this.openDoc(file);
+    }
+  }
+
+  /** Ask for the file that replaces a missing one (e.g. where it was moved to) and point its nodes at it. */
+  private async relinkFile(file: string) {
+    const root = this.store.rootFor(this.document.uri);
+    const name = file.split('/').pop() ?? file;
+    const browse: vscode.QuickPickItem = { label: '$(folder-opened) Browse…', alwaysShow: true };
+    const pick = vscode.window.createQuickPick<vscode.QuickPickItem & { uri?: vscode.Uri }>();
+    pick.title = `"${file}" no longer exists`;
+    pick.placeholder = 'Search the file to show instead';
+    pick.matchOnDescription = true;
+    pick.busy = true;
+    pick.items = [browse];
+    pick.show();
+
+    void vscode.workspace.findFiles(new vscode.RelativePattern(root, '**/*'), `**/{node_modules,.git,${WORKSPACE_DIR}}/**`, 20000).then((uris) => {
+      const items = uris
+        .filter((u) => !isMediaPath(u.path))
+        .map((uri) => ({ label: uri.path.split('/').pop() ?? uri.path, description: this.store.toWorkspacePath(this.document.uri, uri), uri }))
+        .sort((a, b) => a.description.localeCompare(b.description));
+      // Files with the same name first: the likely new home of a moved file.
+      const same = items.filter((i) => i.label === name);
+      const others = items.filter((i) => i.label !== name);
+      pick.items = [
+        browse,
+        ...(same.length ? [{ label: 'Same name', kind: vscode.QuickPickItemKind.Separator }, ...same] : []),
+        ...(others.length ? [{ label: 'Other files', kind: vscode.QuickPickItemKind.Separator }, ...others] : []),
+      ];
+      if (same.length) pick.activeItems = [same[0]];
+      pick.busy = false;
+    });
+
+    const chosen = await new Promise<(vscode.QuickPickItem & { uri?: vscode.Uri }) | undefined>((resolve) => {
+      pick.onDidAccept(() => resolve(pick.selectedItems[0]));
+      pick.onDidHide(() => resolve(undefined));
+    });
+    pick.dispose();
+    let uri = chosen?.uri;
+    if (chosen === browse) {
+      const picked = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: 'Show on canvas', defaultUri: root });
+      uri = picked?.[0];
+    }
+    if (!uri) return;
+    const newFile = this.store.toWorkspacePath(this.document.uri, uri);
+    if (newFile === file) await this.openDoc(file); // it is back where it was
+    else this.post({ type: 'fileRelinked', file, newFile });
   }
 
   private keysFor(uri: vscode.Uri): string[] {
@@ -458,4 +537,13 @@ class CanvasSession {
 </body>
 </html>`;
   }
+}
+
+/** Whether `uri` is `parent` or lies inside it (paths compare case-insensitively on Windows). */
+function isSameOrInside(uri: vscode.Uri, parent: vscode.Uri) {
+  if (uri.scheme !== parent.scheme || uri.authority !== parent.authority) return false;
+  const norm = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p).replace(/\/+$/, '');
+  const a = norm(uri.path);
+  const b = norm(parent.path);
+  return a === b || a.startsWith(b + '/');
 }

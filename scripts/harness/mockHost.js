@@ -121,6 +121,7 @@
     return [{ range: { startLine: line + 1, startColumn: 1, endLine: line + 1, endColumn: 5 }, message, severity: 'warning', source: 'mock' }];
   }
 
+  const deleted = {};
   let state;
   window.acquireVsCodeApi = () => ({
     getState: () => state,
@@ -138,6 +139,7 @@
           return send({ type: 'mediaAdded', srcs: [`data:image/svg+xml;base64,${btoa(svg)}`], position: m.position });
         }
         case 'openDoc':
+          if (m.file in deleted) return send({ type: 'doc', file: m.file, missing: true });
           if (!(m.file in files)) return send({ type: 'doc', file: m.file, error: `Cannot open ${m.file}: not found` });
           send({ type: 'doc', file: m.file, text: files[m.file], languageId: 'typescriptreact', eol: '\n', dirty: !!dirty[m.file] });
           return send({ type: 'diagnostics', file: m.file, diagnostics: mockDiagnostics(files[m.file]) });
@@ -153,6 +155,12 @@
         case 'setConfig':
           config = { ...config, ...m.config };
           return send({ type: 'config', config });
+        // The real host shows a quick pick; here the file reappears under a new name.
+        case 'relinkFile': {
+          const newFile = m.file.replace(/(\.[^./]+)?$/, '.moved$1');
+          files[newFile] = deleted[m.file] ?? files[m.file] ?? '';
+          return send({ type: 'fileRelinked', file: m.file, newFile });
+        }
         case 'save':
           for (const f of Object.keys(dirty)) {
             if (!dirty[f]) continue;
@@ -174,6 +182,16 @@
     externalEdit(file, change) {
       files[file] = apply(files[file], [change]);
       send({ type: 'docChanged', file, changes: [change], length: files[file].length, dirty: true });
+    },
+    deleteFile(file) {
+      deleted[file] = files[file];
+      delete files[file];
+      send({ type: 'doc', file, missing: true });
+    },
+    restoreFile(file) {
+      files[file] = deleted[file];
+      delete deleted[file];
+      send({ type: 'doc', file, text: files[file], languageId: 'typescriptreact', eol: '\n' });
     },
     setWorkspace(p) {
       workspace = p;

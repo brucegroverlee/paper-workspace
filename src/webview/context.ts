@@ -73,6 +73,8 @@ export interface WorkspaceActions {
   openInEditor(file: string, line: number): void;
   /** Ctrl/Cmd+click at a 1-based position: open the definition or imported file as a paper. */
   goToDefinition(file: string, line: number, column: number): void;
+  /** Pick a file to show instead of a missing one (deleted or moved). */
+  relinkFile(file: string): void;
 }
 
 export const WorkspaceContext = createContext<WorkspaceActions | null>(null);
