@@ -211,13 +211,48 @@ export class WorkspaceStore implements vscode.Disposable {
     return next;
   }
 
-  /** Move a workspace and its media folder to the trash. Source files are never touched. */
+  /**
+   * Move a workspace, its media folder and any other `.paperworkspace` media only it shows (e.g. files pasted
+   * before workspaces had their own folder) to the trash. Source files are never touched.
+   */
   async remove(uri: vscode.Uri) {
     const media = this.mediaDirFor(uri);
+    const loose = await this.looseOwnedMedia(uri);
     await vscode.workspace.fs.delete(uri, { useTrash: true });
     if (await exists(media)) await vscode.workspace.fs.delete(media, { recursive: true, useTrash: true });
+    for (const file of loose) {
+      if (await exists(file)) await vscode.workspace.fs.delete(file, { useTrash: true });
+    }
     if (this.isTarget(uri)) await this.setTarget(undefined);
     this.changeEmitter.fire();
+  }
+
+  /** Media files inside `.paperworkspace` (but outside its own media folder) that this workspace shows and no other does. */
+  private async looseOwnedMedia(uri: vscode.Uri): Promise<vscode.Uri[]> {
+    const ownDir = mediaFolderPath(labelFor(uri)) + '/';
+    const files = new Map<string, vscode.Uri>();
+    for (const src of await this.mediaSourcesOf(uri)) {
+      if (isAbsoluteWorkspacePath(src) || !isWorkspaceOwnedPath(src) || src.startsWith(ownDir)) continue;
+      const file = this.resolveWorkspacePath(uri, src);
+      files.set(file.toString(), file);
+    }
+    if (!files.size) return [];
+    const root = this.rootFor(uri).toString();
+    for (const other of await this.list()) {
+      if (other.toString() === uri.toString() || this.rootFor(other).toString() !== root) continue;
+      for (const src of await this.mediaSourcesOf(other)) files.delete(this.resolveWorkspacePath(other, src).toString());
+    }
+    return [...files.values()];
+  }
+
+  /** Local media paths a workspace shows (including unsaved canvas changes); none if it cannot be parsed. */
+  private async mediaSourcesOf(uri: vscode.Uri): Promise<string[]> {
+    try {
+      const { workspace, error } = parseWorkspace((await vscode.workspace.openTextDocument(uri)).getText());
+      return error ? [] : localMediaSources(workspace);
+    } catch {
+      return [];
+    }
   }
 
   /**

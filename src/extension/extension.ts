@@ -108,11 +108,11 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('paperWorkspace.deleteWorkspace', async (arg: WorkspaceArg) => {
+    vscode.commands.registerCommand('paperWorkspace.deleteWorkspace', async (arg: WorkspaceArg, confirmed?: boolean) => {
       const uri = workspaceFrom(arg);
       if (!uri) return;
-      const ok = await vscode.window.showWarningMessage(
-        `Delete workspace "${labelFor(uri)}"? The layout file and its media folder are moved to the trash; your source files are not touched.`,
+      const ok = confirmed === true ? 'Delete' : await vscode.window.showWarningMessage(
+        `Delete workspace "${labelFor(uri)}"? The layout file and the media only it uses are moved to the trash; your source files are not touched.`,
         { modal: true },
         'Delete',
       );

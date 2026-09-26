@@ -224,5 +224,29 @@ exports.run = async function run() {
     assert.ok(!fs.existsSync(vscode.Uri.joinPath(pw, 'media', 'shared-2').fsPath));
   });
 
+  await step('delete removes the media folder and loose media only that workspace uses', async () => {
+    const pw = vscode.Uri.joinPath(ws, '.paperworkspace');
+    const media = (...p) => vscode.Uri.joinPath(pw, 'media', ...p).fsPath;
+    fs.writeFileSync(media('only-mine.png'), 'a');
+    fs.writeFileSync(media('also-theirs.png'), 'b');
+    const rect = { position: { x: 0, y: 0 }, width: 100, height: 80 };
+    const write = (name, srcs) =>
+      fs.writeFileSync(
+        vscode.Uri.joinPath(pw, name + '.workspace').fsPath,
+        JSON.stringify({ version: 2, nodes: srcs.map((src, i) => ({ id: 'm' + i, type: 'media', src, ...rect })), edges: [] }),
+      );
+    write('doomed', ['.paperworkspace/media/only-mine.png', '.paperworkspace/media/also-theirs.png', 'docs/diagram.svg']);
+    write('keeper', ['.paperworkspace/media/also-theirs.png']);
+
+    await vscode.commands.executeCommand('paperWorkspace.deleteWorkspace', vscode.Uri.joinPath(pw, 'doomed.workspace'), true);
+    assert.ok(!fs.existsSync(vscode.Uri.joinPath(pw, 'doomed.workspace').fsPath));
+    assert.ok(!fs.existsSync(media('only-mine.png')), 'loose media only it used is removed');
+    assert.ok(fs.existsSync(media('also-theirs.png')), 'media another workspace shows is kept');
+    assert.ok(fs.existsSync(vscode.Uri.joinPath(ws, 'docs', 'diagram.svg').fsPath), 'repository files are never touched');
+
+    await vscode.commands.executeCommand('paperWorkspace.deleteWorkspace', vscode.Uri.joinPath(pw, 'copy.workspace'), true);
+    assert.ok(!fs.existsSync(media('copy')), 'its own media folder is removed');
+  });
+
   fs.writeFileSync(process.env.PW_RESULTS, results.join('\n') + '\n');
 };
