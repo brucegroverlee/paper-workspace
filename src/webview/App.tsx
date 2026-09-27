@@ -1429,7 +1429,7 @@ function NodeMenu(props: {
   return (
     <div ref={ref} className="pw-menu" role="menu" style={pos} onContextMenu={(e) => e.preventDefault()}>
       <button className="pw-menu-item" role="menuitem" onClick={props.onFocus}>
-        <span className="codicon codicon-zoom-in" />
+        <span className="codicon codicon-screen-full" />
         Focus on paper
       </button>
       <div className="pw-menu-separator" role="separator" />

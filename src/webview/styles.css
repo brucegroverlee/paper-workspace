@@ -1247,6 +1247,58 @@ body {
 }
 
 
+/* ---- paper title bar "more actions" menu (looks like the floating node toolbar) ------------------------- */
+
+.pw-header-menu {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--pw-toolbar-bg);
+  color: var(--pw-fg);
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px var(--pw-shadow);
+  font-family: var(--pw-font);
+  font-size: 12px;
+}
+
+.pw-header-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pw-header-menu-item:hover {
+  background: var(--pw-hover);
+}
+
+.pw-header-menu-item.active {
+  color: var(--pw-accent);
+}
+
+.pw-header-menu-item.danger:hover {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.pw-header-menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--pw-paper-border);
+}
+
 /* ---- node context menu (stacking order) -------------------------------------------------------- */
 
 .pw-menu {

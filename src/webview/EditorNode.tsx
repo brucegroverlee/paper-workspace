@@ -8,6 +8,7 @@ import { monaco } from './monaco';
 import { ZOOM_LIMITS } from './Toolbar';
 import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
+import { HeaderMenu, type HeaderMenuItem } from './HeaderMenu';
 
 /** Below this canvas zoom, editors render as a static preview instead of a live Monaco instance. */
 const LIVE_EDITOR_MIN_ZOOM = 0.35;
@@ -82,6 +83,7 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
   const ctx = useWorkspace();
   const missing = !!useDoc(data.file)?.missing;
   const toggleAnnotation = useToggleAnnotation(id, data.annotation);
+  const targetItems = useTargetMenuItems({ id, data });
   return (
     <>
       <div className={`pw-editor${selected ? ' selected' : ''}`}>
@@ -97,22 +99,19 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
         >
           <span className="codicon codicon-symbol-snippet pw-editor-icon" />
           {missing ? <span className="pw-spacer" /> : <TargetControls id={id} data={data} />}
-          <button
-            className={`pw-icon nodrag${data.annotation !== undefined ? ' active' : ''}`}
-            title={data.annotation !== undefined ? 'Remove annotation' : 'Add annotation'}
-            aria-pressed={data.annotation !== undefined}
-            onClick={toggleAnnotation}
-          >
-            <span className="codicon codicon-comment" />
-          </button>
-          <button className="pw-icon nodrag" title="Focus on this paper" onClick={() => ctx.focusNode(id)}>
-            <span className="codicon codicon-zoom-in" />
-          </button>
           {!missing && (
             <button className="pw-icon nodrag" title="Open in text editor" onClick={() => ctx.openInEditor(data.file, data.target?.start ?? 1)}>
               <span className="codicon codicon-go-to-file" />
             </button>
           )}
+          <HeaderMenu
+            items={[
+              ...(missing ? [] : targetItems),
+              'separator',
+              { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+              { icon: 'screen-full', label: 'Focus on this paper', onClick: () => ctx.focusNode(id) },
+            ]}
+          />
           <button className="pw-icon nodrag" title="Remove this snippet" onClick={() => ctx.remove(id)}>
             <span className="codicon codicon-close" />
           </button>
@@ -124,22 +123,9 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
   );
 });
 
-/** Target label and its actions (jump back, pin, clear). Shared by snippet headers and combined file headers. */
+/** Target label and the jump back to it. Shared by snippet headers and combined file headers. */
 export function TargetControls({ id, data }: { id: string; data: EditorNodeData }) {
-  const ctx = useWorkspace();
   const { target } = data;
-
-  const pinTarget = () => {
-    const ed = liveEditors.get(id);
-    let next = selectedLines(id);
-    if (!next && ed) {
-      // No selection: pin what is currently visible.
-      const visible = ed.getVisibleRanges();
-      if (visible.length) next = { start: visible[0].startLineNumber, end: visible[visible.length - 1].endLineNumber };
-    }
-    if (next) ctx.setTarget(id, next);
-  };
-
   return (
     <>
       <span className="pw-target-label" title={target ? 'Target lines of this snippet' : 'No target: a plain view of the file'}>
@@ -151,16 +137,29 @@ export function TargetControls({ id, data }: { id: string; data: EditorNodeData 
           <span className="codicon codicon-target" />
         </button>
       )}
-      <button className="pw-icon nodrag" title="Set target to the selected lines (or to what is visible)" onClick={pinTarget}>
-        <span className="codicon codicon-pinned" />
-      </button>
-      {target && (
-        <button className="pw-icon nodrag" title="Clear target" onClick={() => ctx.setTarget(id, undefined)}>
-          <span className="codicon codicon-pin" />
-        </button>
-      )}
     </>
   );
+}
+
+/** Set / clear target entries for a header's "more actions" menu (none without an editor). */
+export function useTargetMenuItems(editor: { id: string; data: EditorNodeData } | undefined): HeaderMenuItem[] {
+  const ctx = useWorkspace();
+  if (!editor) return [];
+  const { id, data } = editor;
+  const pinTarget = () => {
+    const ed = liveEditors.get(id);
+    let next = selectedLines(id);
+    if (!next && ed) {
+      // No selection: pin what is currently visible.
+      const visible = ed.getVisibleRanges();
+      if (visible.length) next = { start: visible[0].startLineNumber, end: visible[visible.length - 1].endLineNumber };
+    }
+    if (next) ctx.setTarget(id, next);
+  };
+  return [
+    { icon: 'pinned', label: 'Set target to selection (or visible lines)', onClick: pinTarget },
+    ...(data.target ? [{ icon: 'pin', label: 'Clear target', onClick: () => ctx.setTarget(id, undefined) }] : []),
+  ];
 }
 
 /** The code area of an editor: a live Monaco editor, or a static preview when zoomed far out. */

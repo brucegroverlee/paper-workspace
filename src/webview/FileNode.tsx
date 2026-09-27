@@ -3,7 +3,8 @@ import { NodeResizer, useStore, type NodeProps } from '@xyflow/react';
 import { ANNOTATION_SPACE, FILE_PADDING, FILE_HEADER_HEIGHT } from '../shared/workspace';
 import { displayPath } from '../shared/paths';
 import { useDoc, useWorkspace, type RFEditorNode, type RFFileNode } from './context';
-import { EditorBody, TargetControls } from './EditorNode';
+import { EditorBody, TargetControls, useTargetMenuItems } from './EditorNode';
+import { HeaderMenu } from './HeaderMenu';
 import { languageBadge } from './monaco';
 import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
@@ -42,6 +43,7 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
   const minHeight = single ? minNodeHeight : Math.max(minNodeHeight, extent.h);
   const toggleAnnotation = useToggleAnnotation(id, data.annotation);
   const missing = !!doc?.missing;
+  const targetItems = useTargetMenuItems(single);
 
   return (
     <>
@@ -65,22 +67,6 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
           </span>
           {doc?.dirty && <span className="pw-dirty" title="Unsaved changes (Ctrl+S saves all)" />}
           {single && !missing ? <TargetControls id={single.id} data={single.data} /> : <span className="pw-spacer" />}
-          {!missing && (
-            <button className="pw-icon nodrag" title="Add a snippet editor for this file" onClick={() => ctx.addEditor(id)}>
-              <span className="codicon codicon-add" />
-            </button>
-          )}
-          <button
-            className={`pw-icon nodrag${data.annotation !== undefined ? ' active' : ''}`}
-            title={data.annotation !== undefined ? 'Remove annotation' : 'Add annotation'}
-            aria-pressed={data.annotation !== undefined}
-            onClick={toggleAnnotation}
-          >
-            <span className="codicon codicon-comment" />
-          </button>
-          <button className="pw-icon nodrag" title="Focus on this paper" onClick={() => ctx.focusNode(id)}>
-            <span className="codicon codicon-zoom-in" />
-          </button>
           {missing ? (
             <button className="pw-icon nodrag" title="Find the file to show instead" onClick={() => ctx.relinkFile(data.file)}>
               <span className="codicon codicon-search" />
@@ -90,6 +76,15 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
               <span className="codicon codicon-go-to-file" />
             </button>
           )}
+          <HeaderMenu
+            items={[
+              ...(missing ? [] : targetItems),
+              !missing && { icon: 'add', label: 'Add a snippet editor', onClick: () => ctx.addEditor(id) },
+              'separator',
+              { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+              { icon: 'screen-full', label: 'Focus on this paper', onClick: () => ctx.focusNode(id) },
+            ]}
+          />
           <button className="pw-icon nodrag" title="Remove file from canvas" onClick={() => ctx.remove(id)}>
             <span className="codicon codicon-close" />
           </button>
