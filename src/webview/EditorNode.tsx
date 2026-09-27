@@ -91,6 +91,7 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
         <NodeHandles />
         <header
           className="pw-editor-header"
+          onDoubleClick={(e) => !(e.target as HTMLElement).closest('button') && ctx.focusNode(id)}
           onContextMenu={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -195,7 +196,12 @@ export function EditorBody({ id, data, fileNodeId }: { id: string; data: EditorN
 
   return (
     // The preview is static (no editing or scrolling), so it drags the node like the rest of the paper.
-    <div ref={body} className={`pw-editor-body ${live ? 'nodrag nopan nowheel' : 'preview'}`}>
+    <div
+      ref={body}
+      className={`pw-editor-body ${live ? 'nodrag nopan nowheel' : 'preview'}`}
+      // focusNode maps the hidden editor of a combined file node to the file node.
+      onDoubleClick={live ? undefined : () => ctx.focusNode(id)}
+    >
       {doc?.missing ? (
         <MissingFile file={data.file} fileNodeId={fileNodeId} />
       ) : doc?.error ? (

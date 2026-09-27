@@ -85,7 +85,12 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: NodePro
 
   return (
     <>
-      <div className={`pw-group title-${vertical} title-${horizontal}${selected ? ' selected' : ''}${data.color ? ' colored' : ''}${tone}`} style={style}>
+      <div
+        className={`pw-group title-${vertical} title-${horizontal}${selected ? ' selected' : ''}${data.color ? ' colored' : ''}${tone}`}
+        style={style}
+        // Double-click on the empty body (not the title or a child) focuses the group.
+        onDoubleClick={(e) => e.target === e.currentTarget && ctx.focusNode(id)}
+      >
         <NodeResizer
           isVisible={selected}
           minWidth={Math.max(ctx.config.minNodeWidth, extent.w)}
@@ -449,6 +454,8 @@ export const MediaNode = memo(function MediaNode({ id, data, selected }: NodePro
     <>
       <div
         className={`pw-media${selected ? ' selected' : ''}${video ? ' video' : ''}`}
+        // A video's own controls keep their double-click.
+        onDoubleClick={(e) => (e.target as HTMLElement).tagName !== 'VIDEO' && ctx.focusNode(id)}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();

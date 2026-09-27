@@ -47,12 +47,16 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
 
   return (
     <>
-      <div className={`pw-file${single ? ' single' : ''}${selected ? ' selected' : ''}${missing ? ' missing' : ''}`}>
+      <div
+        className={`pw-file${single ? ' single' : ''}${selected ? ' selected' : ''}${missing ? ' missing' : ''}`}
+        // The empty body between snippet editors.
+        onDoubleClick={(e) => e.target === e.currentTarget && ctx.focusNode(id)}
+      >
         <NodeResizer isVisible={selected} minWidth={minWidth} minHeight={minHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
         <NodeHandles />
         <header
           className="pw-file-header"
-          onDoubleClick={() => !missing && ctx.openInEditor(data.file, single?.data.target?.start ?? 1)}
+          onDoubleClick={(e) => !(e.target as HTMLElement).closest('button') && ctx.focusNode(id)}
           onContextMenu={(e) => {
             e.preventDefault();
             e.stopPropagation();
