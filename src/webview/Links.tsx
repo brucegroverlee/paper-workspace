@@ -94,6 +94,30 @@ function linkGeometry(p: EdgeProps<RFEdge>, data: LinkData) {
 
 // ---- edge ---------------------------------------------------------------------------------------------
 
+type LinkStore = {
+  edgeLookup: Map<string, { source: string; target: string; zIndex?: number }>;
+  nodeLookup: Map<string, { parentId?: string; internals: { z: number } }>;
+};
+
+/**
+ * The z-index React Flow paints a link's line at: its own z-index plus, for an end inside a parent (a snippet in a
+ * file, a node in a group), that end's z-index (`getElevatedEdgeZIndex` in basic mode; not exported by the package).
+ */
+function linkZIndex(s: LinkStore, edge: { source: string; target: string; zIndex?: number }) {
+  const nested = (nodeId: string) => {
+    const n = s.nodeLookup.get(nodeId);
+    return n?.parentId ? n.internals.z : 0;
+  };
+  return (edge.zIndex ?? 0) + Math.max(nested(edge.source), nested(edge.target));
+}
+
+/** The level of the topmost line: labels paint there so no line ever crosses over a label's text. */
+function topLinkZIndex(s: LinkStore) {
+  let top = 0;
+  for (const e of s.edgeLookup.values()) top = Math.max(top, linkZIndex(s, e));
+  return top;
+}
+
 function Marker(props: { id: string; kind: Exclude<EdgeMarker, 'none'>; color: string; width: number }) {
   const m = MARKERS[props.kind];
   const size = markerSize(props.width);
@@ -120,9 +144,9 @@ export const LinkEdge = memo(function LinkEdge(props: EdgeProps<RFEdge>) {
   const markerId = `pw-link-${id.replace(/[^\w-]/g, '_')}`;
   const fontSize = data.fontSize ?? DEFAULT_EDGE_FONT_SIZE;
   const fontWeight = data.fontWeight ?? DEFAULT_FONT_WEIGHT;
-  // Labels live in a layer below every link and node; lifting a label to its link's z-index paints it over its own
-  // line and every other link at that level, while nodes above the link still cover it.
-  const zIndex = useStore((s) => s.edgeLookup.get(id)?.zIndex ?? 0);
+  // Labels live in a layer below every link and node; lifting them to the topmost line's z-index paints them over
+  // every line, while nodes stacked above all links still cover them.
+  const zIndex = useStore(topLinkZIndex);
   const background = data.labelBackground === 'none' ? 'transparent' : data.labelBackground;
   // The toolbar sits above the label, which can wrap to several lines.
   const labelRef = useRef<HTMLDivElement>(null);
