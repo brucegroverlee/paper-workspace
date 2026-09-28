@@ -172,6 +172,25 @@ describe('parseWorkspace / serializeWorkspace', () => {
     expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
   });
 
+  it('title bar colors: kept on files and editors as lowercase #rrggbb, invalid values dropped', () => {
+    const { workspace } = parseWorkspace(
+      JSON.stringify({
+        nodes: [
+          { id: 'f1', type: 'file', file: 'src/a.ts', headerColor: '#FF8800' },
+          { id: 'e1', type: 'editor', parent: 'f1', headerColor: '#1f6feb' },
+          { id: 'e2', type: 'editor', parent: 'f1', headerColor: 'red' },
+        ],
+      }),
+    );
+    const saved = JSON.parse(serializeWorkspace(workspace)).nodes;
+    const byId = Object.fromEntries(saved.map((n: { id: string }) => [n.id, n]));
+    expect(byId.f1).toMatchObject({ headerColor: '#ff8800' });
+    expect(byId.e1).toMatchObject({ headerColor: '#1f6feb' });
+    expect(byId.e2).not.toHaveProperty('headerColor');
+    const text = serializeWorkspace(workspace);
+    expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
+  });
+
   it('tags: defined per workspace, referenced by id from files and editors; bad or unknown entries are dropped', () => {
     const { workspace } = parseWorkspace(
       JSON.stringify({

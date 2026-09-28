@@ -120,7 +120,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
     };
     if (n.type === 'file') {
       fileById.set(n.id, n.file);
-      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation, title: n.title, showTitle: n.showTitle, tags: n.tags } });
+      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags } });
     } else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight, titlePosition: n.titlePosition, strokeColor: n.strokeColor, strokeWidth: n.strokeWidth, strokeStyle: n.strokeStyle, annotation: n.annotation } });
     else if (n.type === 'media') out.push({ ...base, type: 'media', data: { src: n.src, annotation: n.annotation } });
     else if (n.type === 'shape')
@@ -144,7 +144,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
       measured: { width: n.width, height: n.height },
       dragHandle: EDITOR_DRAG_HANDLE,
       selected: selected.has(n.id),
-      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation, title: n.title, showTitle: n.showTitle, tags: n.tags },
+      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags },
     });
   }
   return normalizeLayout(out);
@@ -319,9 +319,9 @@ function toWorkspace(nodes: RFNode[], edges: RFEdge[], { tags, tagPlacement, sho
     const parent = n.parentId !== undefined ? { parent: n.parentId } : {};
     switch (n.type) {
       case 'editor':
-        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, tags: n.data.tags };
+        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags };
       case 'file':
-        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, tags: n.data.tags };
+        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags };
       case 'group':
         return { ...rect, ...parent, type: 'group', ...n.data };
       case 'shape':

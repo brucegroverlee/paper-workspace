@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@xyflow/react';
+import { isLightColor } from '../shared/workspace';
+import { ColorPalette, ColorPopup } from './ColorPalette';
 import { useWorkspace, type TagData, type TitleData } from './context';
 import type { HeaderMenuItem } from './HeaderMenu';
 import { NodeTags, resolveTags } from './Tags';
@@ -30,6 +32,39 @@ export function useTitleMenuItems(id: string, data: TitleData, defaultShown: boo
     },
     ...(data.title !== undefined ? [{ icon: 'discard', label: 'Reset title', onClick: () => ctx.updateTitle(id, { title: undefined }) }] : []),
   ];
+}
+
+/**
+ * A file or editor's title bar color: the menu entry ("Set title bar color" opens the palette below the header,
+ * "Remove title bar color" once one is set), the header's props (attach `ref` to it) and the palette popup to render.
+ */
+export function useHeaderColor(id: string, data: TitleData) {
+  const ctx = useWorkspace();
+  const ref = useRef<HTMLElement>(null);
+  const [picking, setPicking] = useState(false);
+  const close = useCallback(() => setPicking(false), []);
+  const color = data.headerColor;
+  const item: HeaderMenuItem = color
+    ? { icon: 'symbol-color', label: 'Remove title bar color', active: true, onClick: () => ctx.updateTitle(id, { headerColor: undefined }) }
+    : { icon: 'symbol-color', label: 'Set title bar color', onClick: () => setPicking(true) };
+  const header = {
+    ref,
+    className: color ? ` colored ${isLightColor(color) ? 'on-light' : 'on-dark'}` : '',
+    style: color ? { background: color } : undefined,
+  };
+  const picker = picking && ref.current && (
+    <ColorPopup anchor={ref.current} onClose={close}>
+      <ColorPalette
+        value={color}
+        label="Title bar color"
+        onChange={(c, final) => {
+          ctx.updateTitle(id, { headerColor: c });
+          if (final) close();
+        }}
+      />
+    </ColorPopup>
+  );
+  return { item, header, picker };
 }
 
 /**

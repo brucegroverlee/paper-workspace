@@ -5,8 +5,8 @@ import type { CanvasConfig, EditorSettings } from '../shared/protocol';
 import { docStore } from './docStore';
 import type { MenuEntries } from './HeaderMenu';
 
-/** A file or editor's title label; see the workspace model. */
-export type TitleData = { title?: string; showTitle?: boolean };
+/** A file or editor's title label and title bar color; see the workspace model. */
+export type TitleData = { title?: string; showTitle?: boolean; headerColor?: string };
 /** Ids of the workspace tags on a file or editor. */
 export type TagData = { tags?: string[] };
 export type FileNodeData = { file: string; annotation?: string } & TitleData & TagData;
@@ -72,7 +72,7 @@ export interface WorkspaceActions {
   updateData(id: string, patch: BoardDataPatch): void;
   /** Show (`''` or text) or remove (undefined) the caption below a file, snippet, group, shape or media node. */
   setAnnotation(id: string, annotation: string | undefined): void;
-  /** Rename (undefined = back to the base name) or show/hide a file or editor's title label. */
+  /** Rename (undefined = back to the base name) or show/hide a file or editor's title label, or color its title bar. */
   updateTitle(id: string, patch: TitleData): void;
   /** Every tag of this workspace. */
   tags: WorkspaceTag[];

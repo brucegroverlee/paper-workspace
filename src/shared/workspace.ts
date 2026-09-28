@@ -33,6 +33,8 @@ export interface FileNode {
   title?: string;
   /** Whether the title label is shown; undefined = `DEFAULT_FILE_SHOW_TITLE`. */
   showTitle?: boolean;
+  /** Background of the title bar (the header with the path and buttons), `#rrggbb`; undefined = the theme's. */
+  headerColor?: string;
   /** Ids of the workspace tags on this paper, in the order they were added; undefined = none. */
   tags?: string[];
   position: XY;
@@ -61,6 +63,8 @@ export interface EditorNode {
   title?: string;
   /** Whether the title label is shown; undefined = `DEFAULT_EDITOR_SHOW_TITLE`. */
   showTitle?: boolean;
+  /** Background of the snippet's title bar (see FileNode). A combined (single-snippet) node shows the file's instead. */
+  headerColor?: string;
   /** Tags on this snippet (see FileNode). A combined (single-snippet) node shows the file's tags: the snippet's join them. */
   tags?: string[];
   /** Relative to the parent file node. */
@@ -508,7 +512,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
       height: Math.max(NODE_SIZE_FLOOR, num(n.height, d.height)),
     });
     if (n.type === 'file' && typeof n.file === 'string') {
-      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, title, showTitle: showTitle(DEFAULT_FILE_SHOW_TITLE), tags: nodeTags(n.tags), width: num(n.width, 0), height: num(n.height, 0) };
+      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, title, showTitle: showTitle(DEFAULT_FILE_SHOW_TITLE), headerColor: color(n.headerColor), tags: nodeTags(n.tags), width: num(n.width, 0), height: num(n.height, 0) };
       files.push(f);
       boxes.push(f);
     } else if (n.type === 'group') {
@@ -571,6 +575,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
         annotation,
         title,
         showTitle: showTitle(DEFAULT_EDITOR_SHOW_TITLE),
+        headerColor: color(n.headerColor),
         tags: nodeTags(n.tags),
         position: xy(n.position, { x: FILE_PADDING, y: FILE_HEADER_HEIGHT }),
         width: Math.max(NODE_SIZE_FLOOR, num(n.width, DEFAULT_EDITOR_WIDTH)),
@@ -736,9 +741,10 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
   const rect = (n: WorkspaceNode) => ({ position: round(n.position), width: Math.round(n.width), height: Math.round(n.height) });
   const head = (n: BoxNode) => ({ id: n.id, type: n.type, ...(n.parent !== undefined ? { parent: n.parent } : {}) });
   const annotation = (n: { annotation?: string }) => (n.annotation !== undefined ? { annotation: n.annotation } : {});
-  const title = (n: { title?: string; showTitle?: boolean }, fallback: boolean) => ({
+  const title = (n: { title?: string; showTitle?: boolean; headerColor?: string }, fallback: boolean) => ({
     ...(n.title ? { title: n.title } : {}),
     ...(n.showTitle !== undefined && n.showTitle !== fallback ? { showTitle: n.showTitle } : {}),
+    ...(n.headerColor ? { headerColor: n.headerColor } : {}),
   });
   const tags = (n: { tags?: string[] }) => (n.tags?.length ? { tags: [...n.tags] } : {});
   const out = {

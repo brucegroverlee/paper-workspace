@@ -167,6 +167,10 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
   canvas offers Show/Hide file titles and Show/Hide editor titles: they set every paper's own `showTitle` (not a view
   filter), so single papers can be changed afterwards. Right-drag pans, so that menu opens only for a right-click that
   did not move (React Flow swallows the pane's contextmenu when right-drag pans; the canvas wrapper handles it).
+* **Title bar color**: files and editors can carry a `headerColor` (`#rrggbb`), the background of their header bar.
+  "Set title bar color" in the node menu opens the shared color palette below the header; once set, the entry becomes
+  "Remove title bar color". Header text and buttons switch to dark or light to stay readable on it. A combined node
+  shows the file's color.
 * **Annotations**: files, groups, shapes and media can carry an `annotation`, a small italic caption centered below the
   box (like an image caption; under a stick figure it follows the label). It is off by default (no key in the file);
   the comment button in the file header or the node toolbar adds it (`""` until typed) or removes it with its text.

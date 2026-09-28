@@ -45,8 +45,8 @@ Readers must skip kinds they don't recognize.
 
 | `type` | What it is | Own fields |
 |---|---|---|
-| `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?`, `title?`, `showTitle?`, `tags?` |
-| `editor` | A live code editor over the whole file, scrolled to a **target** line range. It always lives inside a `file`. | `parent` (**required**, the file node id), `target? {start,end}`, `anchor?`, `annotation?`, `title?`, `showTitle?`, `tags?` |
+| `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?`, `title?`, `showTitle?`, `headerColor?`, `tags?` |
+| `editor` | A live code editor over the whole file, scrolled to a **target** line range. It always lives inside a `file`. | `parent` (**required**, the file node id), `target? {start,end}`, `anchor?`, `annotation?`, `title?`, `showTitle?`, `headerColor?`, `tags?` |
 | `group` | A titled, colored area. Any box (file, text, note, shape, media, group) can sit inside it. | `title`, `color?`, `textColor?`, `fontSize?`, `fontWeight?`, `titlePosition?`, `strokeColor?`, `strokeWidth?`, `strokeStyle?`, `annotation?` |
 | `shape` | A diagram shape with a label (see the shape list below). | `shape`, `text`, `color?`, `strokeColor?`, `textColor?`, `fontSize?`, `fontWeight?`, `annotation?` |
 | `note` | A sticky note, plain text on a colored square. | `text`, `color?` (background, default `#ffec99`), `textColor?`, `fontSize?` (default 14), `fontWeight?` |
@@ -68,6 +68,8 @@ Field details:
   missing, a file shows its base name (`login.ts`) and an editor the trimmed text of its first `target` line (the base
   name without a target). **`showTitle`** turns the label on or off; it is on by default for both
   kinds, so only write `"showTitle": false` to hide one.
+- **`headerColor`** (`#rrggbb`) colors a file or editor's title bar (the header with the path and buttons). Leave it
+  out for the theme's default.
 - **`tags`** on a file or editor is a list of ids from the top-level `tags` array; each is drawn as a colored chip beside the
   paper (see `tagPlacement`). Tags belong to the workspace: define each once (`id`, `label`, `color`; labels are
   unique ignoring case) and refer to it from any number of papers. Ids that are not defined are dropped. A file with a

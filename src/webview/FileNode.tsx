@@ -8,7 +8,7 @@ import { HeaderMenu, type MenuEntries } from './HeaderMenu';
 import { languageBadge } from './monaco';
 import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
-import { NodeTitle, useTitleMenuItems } from './NodeTitle';
+import { NodeTitle, useHeaderColor, useTitleMenuItems } from './NodeTitle';
 import { useTagMenuItem } from './Tags';
 
 /** Smallest size that still contains every visible child editor, as "WxH" (a string keeps the selector stable). */
@@ -48,6 +48,7 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
   const targetItems = useTargetMenuItems(single);
   const titleItems = useTitleMenuItems(id, data, DEFAULT_FILE_SHOW_TITLE);
   const tagItem = useTagMenuItem(id, data);
+  const headerColor = useHeaderColor(id, data);
   const menuItems = (): MenuEntries => [
     ...(missing ? [] : targetItems),
     !missing && { icon: 'add', label: 'Add a snippet editor', onClick: () => ctx.addEditor(id) },
@@ -55,6 +56,7 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
     { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
     tagItem,
     ...titleItems,
+    headerColor.item,
   ];
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -73,7 +75,9 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
         <NodeResizer isVisible={selected} minWidth={minWidth} minHeight={minHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
         <NodeHandles />
         <header
-          className="pw-file-header"
+          ref={headerColor.header.ref}
+          className={`pw-file-header${headerColor.header.className}`}
+          style={headerColor.header.style}
           onDoubleClick={(e) => !(e.target as HTMLElement).closest('button') && ctx.focusNode(id)}
           onContextMenu={openMenu}
         >
@@ -102,6 +106,7 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
         {single && <EditorBody id={single.id} data={single.data} fileNodeId={id} onContextMenu={openMenu} />}
       </div>
       <NodeTitle id={id} data={data} fallback={path.slice(slash + 1)} width={width ?? 0} defaultShown={DEFAULT_FILE_SHOW_TITLE} />
+      {headerColor.picker}
       <Annotation id={id} value={data.annotation} />
     </>
   );

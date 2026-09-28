@@ -10,7 +10,7 @@ import { ZOOM_LIMITS } from './Toolbar';
 import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
 import { HeaderMenu, type HeaderMenuItem, type MenuEntries } from './HeaderMenu';
-import { NodeTitle, useTitleMenuItems } from './NodeTitle';
+import { NodeTitle, useHeaderColor, useTitleMenuItems } from './NodeTitle';
 import { useTagMenuItem } from './Tags';
 
 /** Below this canvas zoom, editors render as a static preview instead of a live Monaco instance. */
@@ -93,12 +93,14 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
   const targetItems = useTargetMenuItems({ id, data });
   const titleItems = useTitleMenuItems(id, data, DEFAULT_EDITOR_SHOW_TITLE);
   const tagItem = useTagMenuItem(id, data);
+  const headerColor = useHeaderColor(id, data);
   const menuItems = (): MenuEntries => [
     ...(missing ? [] : targetItems),
     'separator',
     { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
     tagItem,
     ...titleItems,
+    headerColor.item,
   ];
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -111,7 +113,9 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
         <NodeResizer isVisible={selected} minWidth={ctx.config.minNodeWidth} minHeight={ctx.config.minNodeHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
         <NodeHandles />
         <header
-          className="pw-editor-header"
+          ref={headerColor.header.ref}
+          className={`pw-editor-header${headerColor.header.className}`}
+          style={headerColor.header.style}
           onDoubleClick={(e) => !(e.target as HTMLElement).closest('button') && ctx.focusNode(id)}
           onContextMenu={openMenu}
         >
@@ -130,6 +134,7 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
         <EditorBody id={id} data={data} fileNodeId={parentId!} onContextMenu={openMenu} />
       </div>
       <NodeTitle id={id} data={data} fallback={titleFallback} width={width ?? 0} defaultShown={DEFAULT_EDITOR_SHOW_TITLE} />
+      {headerColor.picker}
       <Annotation id={id} value={data.annotation} />
     </>
   );

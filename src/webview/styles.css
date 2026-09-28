@@ -203,6 +203,30 @@ body {
   padding: 0 8px 0 14px;
 }
 
+/* A colored title bar: text, muted text and button hovers switch to stay readable on its background. */
+.pw-file-header.colored,
+.pw-editor-header.colored {
+  color: var(--pw-fg);
+}
+
+.pw-file-header.colored {
+  border-radius: 11px 11px 0 0;
+}
+
+.pw-file-header.on-light,
+.pw-editor-header.on-light {
+  --pw-fg: #1f2328;
+  --pw-muted: #57606a;
+  --pw-hover: rgba(0, 0, 0, 0.1);
+}
+
+.pw-file-header.on-dark,
+.pw-editor-header.on-dark {
+  --pw-fg: #ffffff;
+  --pw-muted: rgba(255, 255, 255, 0.75);
+  --pw-hover: rgba(255, 255, 255, 0.18);
+}
+
 .react-flow__node.dragging .pw-file-header,
 .react-flow__node.dragging .pw-editor-header {
   cursor: grabbing;

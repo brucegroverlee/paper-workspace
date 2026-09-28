@@ -152,7 +152,7 @@ export function ColorPickerButton(props: { value: string; onChange(color: string
   );
 }
 
-function ColorPopup(props: { anchor: HTMLElement; onClose(): void; children: React.ReactNode }) {
+export function ColorPopup(props: { anchor: HTMLElement; onClose(): void; children: React.ReactNode }) {
   const { anchor, onClose } = props;
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
