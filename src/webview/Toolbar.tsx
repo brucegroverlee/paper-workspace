@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useReactFlow, useStore } from '@xyflow/react';
+import { useReactFlow, useStore, type FitViewOptions } from '@xyflow/react';
 import {
   DEFAULT_CANVAS_BACKGROUND,
   DEFAULT_FOCUS_PERCENT,
@@ -18,6 +18,22 @@ export type CreateKind = 'group' | 'text' | 'note' | 'media';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 2;
+
+/**
+ * Turns a fitView padding fraction into per-side pixels that keep the fitted content clear of the toolbar:
+ * the area right of the toolbar is fitted the way fitView would fit the whole pane, so the gap between the
+ * toolbar and the content matches the gap on the right.
+ */
+export function clearOfToolbar(padding: number): FitViewOptions['padding'] {
+  const pane = document.querySelector('.react-flow')?.getBoundingClientRect();
+  const bar = document.querySelector('.pw-toolbar')?.getBoundingClientRect();
+  if (!pane || !pane.width || !pane.height) return padding;
+  const inset = bar ? Math.max(0, bar.right - pane.left) : 0;
+  const width = Math.max(1, pane.width - inset);
+  const x = (width - width / (1 + padding)) / 2;
+  const y = (pane.height - pane.height / (1 + padding)) / 2;
+  return { left: `${inset + x}px`, right: `${x}px`, top: `${y}px`, bottom: `${y}px` };
+}
 
 export function Toolbar(props: {
   tool: Tool;
@@ -51,7 +67,7 @@ export function Toolbar(props: {
           value={zoom}
           onChange={(e) => rf.zoomTo(Number(e.target.value))}
         />
-        <ToolButton icon="screen-full" label="Fit all papers (Shift+1)" onClick={() => rf.fitView({ padding: 0.15, duration: 250, maxZoom: 1 })} />
+        <ToolButton icon="screen-full" label="Fit all papers (Shift+1)" onClick={() => rf.fitView({ padding: clearOfToolbar(0.15), duration: 250, maxZoom: 1 })} />
       </div>
       <div className="pw-tool-group">
         <ToolButton icon="primitive-square" label="Group — wraps the selection, or adds an empty group (Ctrl+G)" onClick={() => props.onCreate('group')} />

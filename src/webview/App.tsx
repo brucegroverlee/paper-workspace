@@ -64,7 +64,7 @@ import { FileNode } from './FileNode';
 import { MenuPopup, type MenuEntries } from './HeaderMenu';
 import { watchHostTheme } from './monaco';
 import { handleLanguageMessage, registerLanguageBridge } from './language';
-import { ConfigPanel, HelpOverlay, Toolbar, ZOOM_LIMITS, type CreateKind, type Tool } from './Toolbar';
+import { ConfigPanel, HelpOverlay, Toolbar, clearOfToolbar, ZOOM_LIMITS, type CreateKind, type Tool } from './Toolbar';
 import { ResizeBadge } from './ResizeBadge';
 import { ShapesPanel } from './ShapesPanel';
 import { SHAPE_DRAG_TYPE, shapeDef } from './shapes';
@@ -492,7 +492,7 @@ export function App() {
           if (m.config) setConfig(m.config);
           applyWorkspace(m.workspace, m.error);
           if (!initialViewport && m.workspace.nodes.length) {
-            requestAnimationFrame(() => rf.fitView({ padding: 0.15, maxZoom: 1 }));
+            requestAnimationFrame(() => rf.fitView({ padding: clearOfToolbar(0.15), maxZoom: 1 }));
           }
           break;
         case 'workspace':
@@ -555,7 +555,7 @@ export function App() {
     pendingReveal.current = null;
     const shown = visibleNodeId(nodes, id);
     setNodes((ns) => ns.map((n) => (n.selected === (n.id === shown) ? n : { ...n, selected: n.id === shown })));
-    rf.fitView({ nodes: [{ id: shown }], padding: 0.3, maxZoom: Math.max(rf.getZoom(), 0.8), duration: 300 });
+    rf.fitView({ nodes: [{ id: shown }], padding: clearOfToolbar(0.3), maxZoom: Math.max(rf.getZoom(), 0.8), duration: 300 });
   }, [nodes, rf, setNodes]);
 
   useEffect(() => watchHostTheme(() => setThemeTick((t) => t + 1)), []);
@@ -583,7 +583,7 @@ export function App() {
       if (isEditableTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === 'h' || e.key === 'H') setTool('hand');
       else if (e.key === 'v' || e.key === 'V') setTool('select');
-      else if (e.key === '!' || (e.shiftKey && e.code === 'Digit1')) rf.fitView({ padding: 0.15, duration: 250, maxZoom: 1 });
+      else if (e.key === '!' || (e.shiftKey && e.code === 'Digit1')) rf.fitView({ padding: clearOfToolbar(0.15), duration: 250, maxZoom: 1 });
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -820,7 +820,7 @@ export function App() {
       nodeMenuItems: (id) => nodeMenuItemsRef.current(id),
       // fitView's numeric padding shrinks the fitted size to 1 / (1 + padding), so 100 / percent - 1 fills `percent`.
       focusNode: (id) =>
-        rf.fitView({ nodes: [{ id: visibleNodeId(nodesRef.current, id) }], padding: 100 / config.focusPercent - 1, duration: 300 }),
+        rf.fitView({ nodes: [{ id: visibleNodeId(nodesRef.current, id) }], padding: clearOfToolbar(100 / config.focusPercent - 1), duration: 300 }),
       openInEditor: (file, line) => host.postMessage({ type: 'openInEditor', file, line }),
       goToDefinition: (file, line, column) => host.postMessage({ type: 'goToDefinition', file, line, column }),
       relinkFile: (file) => host.postMessage({ type: 'relinkFile', file }),
