@@ -57,15 +57,15 @@ export function TagChip(props: { tag: WorkspaceTag; onRemove?(): void; title?: s
   );
 }
 
-/** A paper's tags, shown right-aligned on its title row; the × on a chip takes that tag off the paper. */
-export function NodeTags(props: { id: string; tags: WorkspaceTag[] }) {
+/** A paper's tags, shown right-aligned on its title row; the × on a chip takes that tag off the paper (not while it is locked). */
+export function NodeTags(props: { id: string; tags: WorkspaceTag[]; locked?: boolean }) {
   const ctx = useWorkspace();
   if (!props.tags.length) return null;
   const ids = props.tags.map((t) => t.id);
   return (
     <div className="pw-node-tags" onDoubleClick={(e) => e.stopPropagation()}>
       {props.tags.map((t) => (
-        <TagChip key={t.id} tag={t} onRemove={() => ctx.setNodeTags(props.id, ids.filter((x) => x !== t.id))} />
+        <TagChip key={t.id} tag={t} onRemove={props.locked ? undefined : () => ctx.setNodeTags(props.id, ids.filter((x) => x !== t.id))} />
       ))}
     </div>
   );

@@ -961,6 +961,12 @@ body {
   background: var(--pw-hover);
 }
 
+.pw-node-toolbar-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  background: transparent;
+}
+
 .pw-node-toolbar-button.active {
   color: var(--pw-accent);
   background: color-mix(in srgb, var(--pw-accent) 15%, transparent);
@@ -1670,6 +1676,35 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: default;
+}
+
+/* Lock icon before the title of a locked paper (in the label row) or group (in its title bar). */
+.pw-lock-badge.codicon {
+  flex: none;
+  font-size: 12px;
+  line-height: 1.3;
+  opacity: 0.85;
+  cursor: default;
+}
+
+.pw-node-label-row > .pw-lock-badge {
+  margin-right: -5px; /* sits close to its title (the row's gap is for the tags) */
+  padding-bottom: 1px;
+  color: var(--pw-canvas-fg);
+}
+
+.react-flow__node-editor .pw-node-label-row > .pw-lock-badge {
+  color: var(--pw-fg);
+}
+
+.react-flow__node.selected .pw-node-label-row > .pw-lock-badge {
+  color: var(--pw-accent);
+  opacity: 1;
+}
+
+.pw-group-header > .pw-lock-badge {
+  margin-right: 6px;
+  font-size: 14px;
 }
 
 /* A snippet's title sits on its file's panel, not on the canvas. */

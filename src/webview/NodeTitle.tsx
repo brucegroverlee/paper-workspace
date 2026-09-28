@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useStore } from '@xyflow/react';
 import { toneOver } from './tone';
 import { ColorPalette, ColorPopup } from './ColorPalette';
-import { useWorkspace, type TagData, type TitleData } from './context';
+import { useLocked, useWorkspace, type LockData, type TagData, type TitleData } from './context';
 import type { HeaderMenuItem } from './HeaderMenu';
 import { NodeTags, resolveTags } from './Tags';
 
@@ -108,10 +108,11 @@ export function useBodyColor(id: string, color: string | undefined, header: RefO
  * The paper's tags go where the workspace's tag placement says: on this row, right-aligned (wrapping upwards when they
  * don't fit, also shown when the title is hidden), or beside the paper on its right, bottom or left.
  */
-export function NodeTitle(props: { id: string; data: TitleData & TagData; fallback: string; width: number; defaultShown: boolean }) {
+export function NodeTitle(props: { id: string; data: TitleData & TagData & LockData; fallback: string; width: number; defaultShown: boolean }) {
   const { id, data } = props;
   const ctx = useWorkspace();
   const zoom = useStore(zoomSelector);
+  const locked = useLocked(id) !== '';
   const [editing, setEditing] = useState(() => editTitleOnMount.delete(id));
   useEffect(() => {
     const onRequest = (e: Event) => {
@@ -133,32 +134,40 @@ export function NodeTitle(props: { id: string; data: TitleData & TagData; fallba
       className={`pw-side-tags ${ctx.tagPlacement}`}
       style={{ transform: scale, ...(ctx.tagPlacement === 'bottom' ? { width: Math.max(0, props.width * zoom) } : {}) }}
     >
-      <NodeTags id={id} tags={tags} />
+      <NodeTags id={id} tags={tags} locked={locked} />
     </div>
   );
-  if (!shown && !(onRow && tags.length)) return side || null;
+  // The lock icon marks the paper that holds the lock (what is inside it is locked too, without its own icon).
+  if (!shown && !data.locked && !(onRow && tags.length)) return side || null;
   const { fallback } = props;
   const text = data.title ?? fallback;
   return (
     <>
       <div className="pw-node-label-row" style={{ transform: scale, width: Math.max(0, props.width * zoom) }}>
+        {data.locked && <LockBadge />}
         {shown && (
           <div
-            className={`pw-node-title${editing ? ' editing' : ''}`}
-            title={editing ? undefined : `${text} (double-click to rename)`}
+            className={`pw-node-title${editing && !locked ? ' editing' : ''}`}
+            title={locked ? `${text} (locked)` : editing ? undefined : `${text} (double-click to rename)`}
             onDoubleClick={(e) => {
               e.stopPropagation();
-              setEditing(true);
+              if (locked) ctx.focusNode(id);
+              else setEditing(true);
             }}
           >
-            {editing ? <TitleInput id={id} value={text} fallback={fallback} onDone={() => setEditing(false)} /> : text}
+            {editing && !locked ? <TitleInput id={id} value={text} fallback={fallback} onDone={() => setEditing(false)} /> : text}
           </div>
         )}
-        {onRow && <NodeTags id={id} tags={tags} />}
+        {onRow && <NodeTags id={id} tags={tags} locked={locked} />}
       </div>
       {side}
     </>
   );
+}
+
+/** The lock icon before a locked paper's or group's title; its menu (or a group's toolbar) unlocks it. */
+export function LockBadge() {
+  return <span className="codicon codicon-lock pw-lock-badge" title="Locked: unlock it from its menu to make changes" aria-label="Locked" />;
 }
 
 function TitleInput(props: { id: string; value: string; fallback: string; onDone(): void }) {

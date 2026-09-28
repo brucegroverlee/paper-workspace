@@ -2,7 +2,7 @@ import { memo, type CSSProperties } from 'react';
 import { NodeResizer, useStore, type NodeProps } from '@xyflow/react';
 import { ANNOTATION_SPACE, DEFAULT_FILE_SHOW_TITLE, FILE_PADDING, FILE_HEADER_HEIGHT } from '../shared/workspace';
 import { displayPath } from '../shared/paths';
-import { useDoc, useWorkspace, type RFEditorNode, type RFFileNode } from './context';
+import { useDoc, useLocked, useWorkspace, type RFEditorNode, type RFFileNode } from './context';
 import { EditorBody, TargetControls, useTargetMenuItems } from './EditorNode';
 import { HeaderMenu, type MenuEntries } from './HeaderMenu';
 import { languageBadge } from './monaco';
@@ -32,8 +32,9 @@ function useChildrenExtent(id: string) {
  * One source file. With a single editor it is a combined node (the editor is embedded and its React Flow node
  * hidden); with several editors it is a group whose editors are separate, movable child nodes.
  */
-export const FileNode = memo(function FileNode({ id, data, selected, width }: NodeProps<RFFileNode>) {
+export const FileNode = memo(function FileNode({ id, data, selected, width, deletable }: NodeProps<RFFileNode>) {
   const ctx = useWorkspace();
+  const locked = useLocked(id) !== '';
   const doc = useDoc(data.file);
   // The embedded editor of a combined node (App hides the only child of a file).
   const single = useStore((s) => s.nodes.find((n) => n.parentId === id && n.hidden) as RFEditorNode | undefined);
@@ -53,7 +54,8 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
   const colored = !single && !!data.color;
   const headerColor = useHeaderColor(id, data, single ? { alpha: 1 } : { color: data.color, alpha: colored ? 0.6 : 0.7 });
   const bodyColor = useBodyColor(id, data.color, headerColor.header.ref, !single);
-  const menuItems = (): MenuEntries => [
+  // A locked file keeps only the entries that change nothing (and Unlock, from nodeMenuItems).
+  const menuItems = (): MenuEntries => locked ? [] : [
     ...(missing ? [] : targetItems),
     !missing && { icon: 'add', label: 'Add a snippet editor', onClick: () => ctx.addEditor(id) },
     'separator',
@@ -78,7 +80,7 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
         onDoubleClick={(e) => e.target === e.currentTarget && ctx.focusNode(id)}
         onContextMenu={(e) => e.target === e.currentTarget && openMenu(e)}
       >
-        <NodeResizer isVisible={selected} minWidth={minWidth} minHeight={minHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
+        <NodeResizer isVisible={selected && !locked} minWidth={minWidth} minHeight={minHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
         <NodeHandles />
         <header
           ref={headerColor.header.ref}
@@ -105,9 +107,11 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
             </button>
           )}
           <HeaderMenu items={() => [...menuItems(), 'separator', ...ctx.nodeMenuItems(id)]} />
-          <button className="pw-icon nodrag" title="Remove file from canvas" onClick={() => ctx.remove(id)}>
-            <span className="codicon codicon-close" />
-          </button>
+          {deletable !== false && (
+            <button className="pw-icon nodrag" title="Remove file from canvas" onClick={() => ctx.remove(id)}>
+              <span className="codicon codicon-close" />
+            </button>
+          )}
         </header>
         {single && <EditorBody id={single.id} data={single.data} fileNodeId={id} onContextMenu={openMenu} />}
       </div>

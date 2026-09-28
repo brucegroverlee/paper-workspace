@@ -51,6 +51,17 @@ export function isWithin(ns: TreeNode[], id: string, ancestorId: string): boolea
   return false;
 }
 
+/** Whether `id`, or a node it sits in (at any depth), is locked (see the workspace model). */
+export function isLockedIn(ns: TreeNode[], id: string): boolean {
+  const byId = new Map(ns.map((n) => [n.id, n]));
+  let n = byId.get(id);
+  for (let i = 0; n && i <= ns.length; i++) {
+    if ((n.data as { locked?: boolean } | undefined)?.locked) return true;
+    n = n.parentId !== undefined ? byId.get(n.parentId) : undefined;
+  }
+  return false;
+}
+
 /** Move `id` into group `parentId` (undefined = the canvas) without moving it on screen; it goes on top of its new siblings. */
 export function reparent<T extends TreeNode>(ns: T[], id: string, parentId: string | undefined): T[] {
   const node = ns.find((n) => n.id === id);
@@ -64,7 +75,7 @@ export function reparent<T extends TreeNode>(ns: T[], id: string, parentId: stri
 
 /**
  * The group a dragged node would drop into: the topmost group under the node's center, excluding the dragged
- * nodes and everything inside them.
+ * nodes and everything inside them, and locked groups (their content can't change).
  */
 export function dropTargetFor(ns: TreeNode[], id: string, dragged: Set<string>): string | undefined {
   const node = ns.find((n) => n.id === id);
@@ -74,7 +85,7 @@ export function dropTargetFor(ns: TreeNode[], id: string, dragged: Set<string>):
   const c = { x: abs.x + size.width / 2, y: abs.y + size.height / 2 };
   let best: TreeNode | undefined;
   for (const g of ns) {
-    if (!isContainerType(g.type) || g.hidden || [...dragged].some((d) => isWithin(ns, g.id, d))) continue;
+    if (!isContainerType(g.type) || g.hidden || [...dragged].some((d) => isWithin(ns, g.id, d)) || isLockedIn(ns, g.id)) continue;
     const p = absolutePos(ns, g.id);
     const s = sizeOf(g);
     if (c.x < p.x || c.y < p.y || c.x > p.x + s.width || c.y > p.y + s.height) continue;

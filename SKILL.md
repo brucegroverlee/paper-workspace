@@ -45,9 +45,9 @@ Readers must skip kinds they don't recognize.
 
 | `type` | What it is | Own fields |
 |---|---|---|
-| `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?`, `title?`, `showTitle?`, `headerColor?`, `tags?` |
-| `editor` | A live code editor over the whole file, scrolled to a **target** line range. It always lives inside a `file`. | `parent` (**required**, the file node id), `target? {start,end}`, `anchor?`, `annotation?`, `title?`, `showTitle?`, `headerColor?`, `tags?` |
-| `group` | A titled, colored area. Any box (file, text, note, shape, media, group) can sit inside it. | `title`, `color?`, `textColor?`, `fontSize?`, `fontWeight?`, `titlePosition?`, `strokeColor?`, `strokeWidth?`, `strokeStyle?`, `annotation?` |
+| `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?`, `title?`, `showTitle?`, `headerColor?`, `tags?`, `locked?` |
+| `editor` | A live code editor over the whole file, scrolled to a **target** line range. It always lives inside a `file`. | `parent` (**required**, the file node id), `target? {start,end}`, `anchor?`, `annotation?`, `title?`, `showTitle?`, `headerColor?`, `tags?`, `locked?` |
+| `group` | A titled, colored area. Any box (file, text, note, shape, media, group) can sit inside it. | `title`, `color?`, `textColor?`, `fontSize?`, `fontWeight?`, `titlePosition?`, `strokeColor?`, `strokeWidth?`, `strokeStyle?`, `annotation?`, `locked?` |
 | `shape` | A diagram shape with a label (see the shape list below). | `shape`, `text`, `color?`, `strokeColor?`, `textColor?`, `fontSize?`, `fontWeight?`, `annotation?` |
 | `note` | A sticky note, plain text on a colored square. | `text`, `color?` (background, default `#ffec99`), `textColor?`, `fontSize?` (default 14), `fontWeight?` |
 | `text` | Free text with no background (titles, headings, labels). | `text`, `color?` (text color), `fontSize?` (default 18), `fontWeight?` |
@@ -77,6 +77,10 @@ Field details:
   **`tagPlacement`** says where chips are drawn: `"right"` (default, beside the paper), `"bottom"`, `"left"`, or
   `"top"` (on the title row, at the top-right corner). **`"showTags": false`** hides every chip without removing any
   tag from its paper (omit it to show them).
+- **`locked`** (`true`, on a file, editor, folder or group) protects it from accidental changes on the canvas: it can't
+  be moved, resized, renamed, recolored, re-tagged or deleted, and its code is read-only. Everything inside it (a
+  file's editors, a folder's or group's content) is locked with it. A lock icon is drawn before its title. Leave it out
+  unless the user asks for a locked paper.
 - **`customColors`** (top level, optional) is the color picker's "Custom" row for this workspace: `#rrggbb` values,
   oldest first. It has no effect on how anything is drawn, so leave it out when writing a workspace.
 - **`text`** in shapes, notes, and text nodes is plain text. `\n` makes a new line, and there is no Markdown.

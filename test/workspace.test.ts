@@ -11,6 +11,7 @@ import {
   addFolder,
   addSnippet,
   isInFolder,
+  isLocked,
   clampRange,
   editorHeightFor,
   editorsOf,
@@ -574,5 +575,48 @@ describe('file body color', () => {
     const once = serializeWorkspace(workspace);
     expect(JSON.parse(once).nodes.find((n: any) => n.id === 'g')).not.toHaveProperty('color');
     expect(serializeWorkspace(parseWorkspace(once).workspace)).toBe(once);
+  });
+});
+
+describe('locks', () => {
+  const text = JSON.stringify({
+    nodes: [
+      { id: 'g', type: 'group', title: 'G', locked: true, position: { x: 0, y: 0 }, width: 900, height: 700 },
+      { id: 'd', type: 'folder', folder: 'src', parent: 'g', locked: 'yes', position: { x: 20, y: 40 }, width: 800, height: 600 },
+      { id: 'f', type: 'file', file: 'src/a.ts', parent: 'd', position: { x: 20, y: 60 }, width: 640, height: 420 },
+      { id: 'e', type: 'editor', parent: 'f', locked: true, position: { x: 0, y: 40 }, width: 640, height: 380 },
+      { id: 'n', type: 'note', text: 'x', locked: true, position: { x: 1000, y: 0 } },
+      { id: 'd2', type: 'folder', folder: 'lib', locked: true, position: { x: 1000, y: 400 }, width: 400, height: 300 },
+    ],
+  });
+
+  it('parses only `true` on lockable kinds and round-trips', () => {
+    const { workspace } = parseWorkspace(text);
+    const byId = (id: string) => workspace.nodes.find((n) => n.id === id) as { locked?: boolean };
+    expect(byId('g').locked).toBe(true);
+    expect(byId('d').locked).toBeUndefined();
+    expect(byId('e').locked).toBe(true);
+    const once = serializeWorkspace(workspace);
+    const saved = JSON.parse(once).nodes;
+    expect(saved.find((n: any) => n.id === 'n')).not.toHaveProperty('locked');
+    expect(saved.find((n: any) => n.id === 'f')).not.toHaveProperty('locked');
+    expect(serializeWorkspace(parseWorkspace(once).workspace)).toBe(once);
+  });
+
+  it('locks everything inside a locked node', () => {
+    const { workspace } = parseWorkspace(text);
+    expect(['g', 'd', 'f', 'e'].map((id) => isLocked(workspace, id))).toEqual([true, true, true, true]);
+    expect(isLocked(workspace, 'n')).toBe(false);
+    const open = { ...workspace, nodes: workspace.nodes.map((n) => (n.id === 'g' ? { ...n, locked: undefined } : n)) };
+    expect(['g', 'd', 'f', 'e'].map((id) => isLocked(open, id))).toEqual([false, false, false, true]);
+  });
+
+  it('adds no snippet to a locked file and no file to a locked folder', () => {
+    const { workspace } = parseWorkspace(text);
+    const snippet = addSnippet(workspace, { file: 'src/a.ts', target: { start: 50, end: 60 }, lineHeight: 19, origin: { x: 0, y: 0 } });
+    expect(snippet).toMatchObject({ created: false, editorId: 'e' });
+    const file = addSnippet(workspace, { file: 'lib/b.ts', lineHeight: 19, origin: { x: 0, y: 0 } });
+    expect(file.created).toBe(true);
+    expect(file.workspace.nodes.find((n) => isFileNode(n) && n.file === 'lib/b.ts')).not.toHaveProperty('parent');
   });
 });

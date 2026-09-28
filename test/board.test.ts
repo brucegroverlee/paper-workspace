@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GROUP_HEADER_HEIGHT, GROUP_PADDING, canvasBackgroundOf, groupHeaderHeight, clampFontSize, isLightColor, mediaSizeFor, parseWorkspace, serializeWorkspace } from '../src/shared/workspace';
-import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, reparent, type TreeNode } from '../src/webview/boardLayout';
+import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isLockedIn, reparent, type TreeNode } from '../src/webview/boardLayout';
 import { toneOver } from '../src/webview/tone';
 
 const ids = (ns: { id: string }[]) => ns.map((n) => n.id).join(',');
@@ -258,5 +258,19 @@ describe('title bar text tone', () => {
     // Mostly transparent: the canvas decides.
     expect(toneOver({ color: '#000000', alpha: 0.1 }, '#ffffff')).toBe('on-light');
     expect(toneOver({ color: '#ffffff', alpha: 0.1 }, '#101010')).toBe('on-dark');
+  });
+});
+
+describe('locked groups', () => {
+  it('take no drops, even through a locked parent', () => {
+    const ns: TreeNode[] = [
+      { id: 'g', type: 'group', position: { x: 0, y: 0 }, width: 400, height: 400, data: { locked: true } },
+      { id: 'inner', type: 'group', parentId: 'g', position: { x: 50, y: 50 }, width: 200, height: 200, zIndex: 1 },
+      { id: 'c', type: 'note', position: { x: 100, y: 100 }, width: 20, height: 20 },
+    ];
+    expect(isLockedIn(ns, 'inner')).toBe(true);
+    expect(dropTargetFor(ns, 'c', new Set(['c']))).toBeUndefined();
+    ns[0] = { ...ns[0], data: {} };
+    expect(dropTargetFor(ns, 'c', new Set(['c']))).toBe('inner');
   });
 });

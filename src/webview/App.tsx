@@ -55,10 +55,11 @@ import {
   type TagPlacement,
   COLOR_GRID,
   CUSTOM_COLORS_MAX,
+  isLockableType,
 } from '../shared/workspace';
 import { isAbsoluteWorkspacePath } from '../shared/paths';
 import { DEFAULT_CANVAS_CONFIG, type CanvasConfig, type EditorSettings, type HostToWebview } from '../shared/protocol';
-import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isWithin, reparent, sizeOf } from './boardLayout';
+import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isLockedIn, isWithin, reparent, sizeOf } from './boardLayout';
 import { GroupNode, MediaNode, ShapeNode, TextNode, editWhenMounted } from './BoardNodes';
 import { WorkspaceContext, type WorkspaceActions, type RFEdge, type RFEditorNode, type RFFileNode, type RFFolderNode, type RFGroupNode, type RFNode, type RFShapeNode } from './context';
 import { facingSides, nearestSide, nodeHandles } from './handles';
@@ -129,10 +130,10 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
     };
     if (n.type === 'file') {
       fileById.set(n.id, n.file);
-      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags, color: n.color } });
+      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags, color: n.color, locked: n.locked } });
     } else if (n.type === 'folder')
-      out.push({ ...base, type: 'folder', data: { folder: n.folder, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags, color: n.color } });
-    else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight, titlePosition: n.titlePosition, strokeColor: n.strokeColor, strokeWidth: n.strokeWidth, strokeStyle: n.strokeStyle, annotation: n.annotation } });
+      out.push({ ...base, type: 'folder', data: { folder: n.folder, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags, color: n.color, locked: n.locked } });
+    else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight, titlePosition: n.titlePosition, strokeColor: n.strokeColor, strokeWidth: n.strokeWidth, strokeStyle: n.strokeStyle, annotation: n.annotation, locked: n.locked } });
     else if (n.type === 'media') out.push({ ...base, type: 'media', data: { src: n.src, annotation: n.annotation } });
     else if (n.type === 'shape')
       out.push({
@@ -155,7 +156,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
       measured: { width: n.width, height: n.height },
       dragHandle: EDITOR_DRAG_HANDLE,
       selected: selected.has(n.id),
-      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags },
+      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags, locked: n.locked },
     });
   }
   return normalizeLayout(out);
@@ -194,6 +195,11 @@ function normalizeLayout(ns: RFNode[]): RFNode[] {
         file = { ...file, data: { ...file.data, tags: [...new Set([...(file.data.tags ?? []), ...data.tags])] } };
         data = { ...data, tags: undefined };
       }
+      if (data.locked) {
+        // And its lock: locking the combined node locks the file.
+        file = { ...file, data: { ...file.data, locked: true } };
+        data = { ...data, locked: undefined };
+      }
       const w = file.width ?? DEFAULT_EDITOR_WIDTH;
       const h = file.height ?? DEFAULT_EDITOR_HEIGHT;
       // No expandParent while embedded: React Flow's resizer never shrinks a parent below such children,
@@ -219,6 +225,34 @@ function normalizeLayout(ns: RFNode[]): RFNode[] {
   return updates.size ? ns.map((n) => updates.get(n.id) ?? n) : ns;
 }
 
+/**
+ * React Flow flags from the locks: a locked node (or one inside a locked group, folder or file) can't be dragged, and
+ * neither it nor what contains it can be deleted. Returns the same array when nothing changes.
+ */
+function applyLocks(ns: RFNode[]): RFNode[] {
+  const byId = new Map(ns.map((n) => [n.id, n]));
+  const locked = new Set(ns.filter((n) => isLockedIn(ns, n.id)).map((n) => n.id));
+  // Containers of a locked node: deleting them would delete it.
+  const holdsLocked = new Set<string>();
+  for (const id of locked) for (let p = byId.get(id)?.parentId, i = 0; p !== undefined && i <= ns.length; p = byId.get(p)?.parentId, i++) holdsLocked.add(p);
+  let changed = false;
+  const out = ns.map((n) => {
+    const draggable = locked.has(n.id) ? false : undefined;
+    const deletable = locked.has(n.id) || holdsLocked.has(n.id) ? false : undefined;
+    // React Flow marks only draggable nodes `nopan`; without it the pane's own double-click zoom would fight
+    // "double-click to focus" (and a drag would pan), so locked nodes keep it and navigate like the others.
+    const className = locked.has(n.id) ? 'nopan' : undefined;
+    if (n.draggable === draggable && n.deletable === deletable && n.className === className) return n;
+    changed = true;
+    const next = { ...n, draggable, deletable, className };
+    if (draggable === undefined) delete next.draggable;
+    if (deletable === undefined) delete next.deletable;
+    if (className === undefined) delete next.className;
+    return next;
+  });
+  return changed ? out : ns;
+}
+
 /** A snippet just got a caption: push the snippets below it (in its file) down, so the caption does not sit under them. */
 function makeRoomBelow(ns: RFNode[], editor: RFEditorNode): RFNode[] {
   const left = editor.position.x;
@@ -239,6 +273,17 @@ function makeRoomBelow(ns: RFNode[], editor: RFEditorNode): RFNode[] {
 const stackGroup = (n: RFNode) => n.parentId;
 
 const sideOf = (handle: string | null | undefined): Side | undefined => SIDES.find((s) => s === handle);
+
+/** Kind of the nearest locked node containing `id` ("group", "folder" or "file"), for menu labels. */
+function lockOwnerKind(ns: RFNode[], id: string): string {
+  const byId = new Map(ns.map((n) => [n.id, n]));
+  let n = byId.get(byId.get(id)?.parentId ?? '');
+  for (let i = 0; n && i <= ns.length; i++) {
+    if ((n.data as { locked?: boolean }).locked) return n.type;
+    n = n.parentId !== undefined ? byId.get(n.parentId) : undefined;
+  }
+  return 'container';
+}
 
 function toRFEdges(workspace: WorkspaceFile, prev: RFEdge[]): RFEdge[] {
   const selected = new Set(prev.filter((e) => e.selected).map((e) => e.id));
@@ -330,9 +375,9 @@ function toWorkspace(nodes: RFNode[], edges: RFEdge[], { tags, tagPlacement, sho
     const parent = n.parentId !== undefined ? { parent: n.parentId } : {};
     switch (n.type) {
       case 'editor':
-        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags };
+        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags, locked: n.data.locked };
       case 'file':
-        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags, color: n.data.color };
+        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags, color: n.data.color, locked: n.data.locked };
       case 'folder':
         return { ...rect, ...parent, type: 'folder', ...n.data };
       case 'group':
@@ -513,7 +558,7 @@ export function App() {
   const updateNodes = useCallback(
     (fn: (ns: RFNode[]) => RFNode[], persist = true) => {
       setNodes((prev) => {
-        const next = arrange(fitGroups(normalizeLayout(fn(prev))));
+        const next = applyLocks(arrange(fitGroups(normalizeLayout(fn(prev)))));
         syncTrackers(next, prev);
         return next;
       });
@@ -779,6 +824,8 @@ export function App() {
 
   const actions = useMemo<WorkspaceActions | null>(() => {
     if (!settings) return null;
+    /** Whether node `id` may change (it is not locked, nor inside something locked); every edit checks it. */
+    const editable = (id: string) => !isLockedIn(nodesRef.current, id);
     return {
       settings,
       config,
@@ -789,6 +836,7 @@ export function App() {
         revealInExplorer(id, true);
       },
       setTarget: (id: string, target: LineRange | undefined) => {
+        if (!editable(id)) return;
         const model = (() => {
           const node = nodesRef.current.find((n) => n.id === id);
           return node && isEditor(node) ? docStore.get(node.data.file)?.model : undefined;
@@ -797,6 +845,7 @@ export function App() {
         updateNodes((ns) => ns.map((n) => (n.id === id && isEditor(n) ? { ...n, data: { ...n.data, target, anchor } } : n)));
       },
       addEditor: (fileNodeId: string) => {
+        if (!editable(fileNodeId)) return;
         const lineHeight = settingsRef.current?.lineHeight ?? 19;
         updateNodes((ns) => {
           const file = ns.find((n) => n.id === fileNodeId);
@@ -840,12 +889,15 @@ export function App() {
         });
       },
       remove: (id) => {
+        if (nodesRef.current.find((n) => n.id === id)?.deletable === false) return;
         docStore.untrack(id);
         updateNodes((ns) => pruneNodes(ns.filter((n) => n.id !== id)));
       },
       updateData: (id, patch) =>
+        editable(id) &&
         updateNodes((ns) => ns.map((n) => (n.id === id && !isFile(n) && !isEditor(n) ? ({ ...n, data: { ...n.data, ...patch } } as RFNode) : n))),
       setAnnotation: (id, annotation) =>
+        editable(id) &&
         updateNodes((ns) => {
           const node = ns.find((n) => n.id === id);
           if (!node || node.type === 'text' || node.type === 'note') return ns;
@@ -853,8 +905,10 @@ export function App() {
           return isEditor(node) && node.data.annotation === undefined && annotation !== undefined ? makeRoomBelow(next, node) : next;
         }),
       setBodyColor: (id, color) =>
+        editable(id) &&
         updateNodes((ns) => ns.map((n) => (n.id === id && (isFile(n) || isFolder(n)) ? ({ ...n, data: { ...n.data, color } } as RFNode) : n))),
       updateTitle: (id, patch) =>
+        editable(id) &&
         updateNodes((ns) => ns.map((n) => (n.id === id && isTitled(n) ?({ ...n, data: { ...n.data, ...patch } } as RFNode) : n))),
       tags,
       tagPlacement,
@@ -867,6 +921,7 @@ export function App() {
         commit();
       },
       setNodeTags: (id, tagIds, created) => {
+        if (!editable(id)) return;
         if (created?.length) setTags([...optionsRef.current.tags, ...created]);
         const next = tagIds.length ? [...new Set(tagIds)] : undefined;
         updateNodes((ns) => ns.map((n) => (n.id === id && isTitled(n) ? ({ ...n, data: { ...n.data, tags: next } } as RFNode) : n)));
@@ -892,7 +947,10 @@ export function App() {
           if (!n || n.height === height) return ns;
           return ns.map((x) => (x === n ? { ...x, height, measured: { width: x.width ?? x.measured?.width, height } } : x));
         }),
+      setLocked: (id, locked) =>
+        updateNodes((ns) => ns.map((n) => (n.id === id && isLockableType(n.type) ? ({ ...n, data: { ...n.data, locked: locked || undefined } } as RFNode) : n))),
       ungroup: (id) =>
+        editable(id) &&
         updateNodes((ns) => {
           const group = ns.find((n) => n.id === id);
           if (!group || !isGroup(group)) return ns;
@@ -929,7 +987,7 @@ export function App() {
   const restackNode = useCallback(
     (id: string, op: StackOp) => {
       setNodeMenu(null);
-      updateNodes((ns) => restack(ns, stackGroup, id, op));
+      if (!isLockedIn(nodesRef.current, id)) updateNodes((ns) => restack(ns, stackGroup, id, op));
     },
     [updateNodes],
   );
@@ -965,6 +1023,8 @@ export function App() {
       addBox({ id, type: 'group', ...DEFAULT_GROUP_SIZE, position: { x: 0, y: 0 }, data: { title: '' }, ...boxProps('group') } as RFGroupNode, viewCenter());
       return;
     }
+    // Wrapping would take the selection out of (or put a new group into) a locked group, folder or file.
+    if (roots.some((r) => r.parentId !== undefined && isLockedIn(nodesRef.current, r.parentId))) return;
     updateNodes((ns) => {
       const boxes = roots.map((r) => ns.find((n) => n.id === r.id)!).filter(Boolean);
       const parents = new Set(boxes.map((b) => b.parentId));
@@ -1096,7 +1156,14 @@ export function App() {
   /** Add copies of a snapshot moved by `offset` as the new selection; a copy landing on a group goes into it. */
   const insertCopies = useCallback(
     (snapshot: { nodes: RFNode[]; links: RFEdge[] }, offset: { x: number; y: number }) => {
-      const copies = cloneTrees(snapshot.nodes, offset, (n) => newId(n.id.split('_')[0] || 'n')).map((n) => ({ ...n, selected: n.parentId === undefined }));
+      // Copies start unlocked (a locked group's copy can be arranged right away).
+      const copies = cloneTrees(snapshot.nodes, offset, (n) => newId(n.id.split('_')[0] || 'n')).map((n) => {
+        const copy = { ...n, selected: n.parentId === undefined } as RFNode;
+        delete copy.draggable;
+        delete copy.deletable;
+        delete copy.className;
+        return (copy.data as { locked?: boolean }).locked ? ({ ...copy, data: { ...copy.data, locked: undefined } } as RFNode) : copy;
+      });
       const roots = new Set(copies.filter((n) => n.parentId === undefined).map((n) => n.id));
       const copyOf = new Map(snapshot.nodes.map((n, i) => [n.id, copies[i].id])); // cloneTrees keeps the order
       const links = snapshot.links.map((e) => ({ ...e, id: newId('l'), source: copyOf.get(e.source)!, target: copyOf.get(e.target)!, selected: false }));
@@ -1119,7 +1186,7 @@ export function App() {
         () => {},
       );
       if (cut && !readOnlyRef.current) {
-        const ids = new Set(snapshot.nodes.filter((n) => n.parentId === undefined).map((n) => n.id));
+        const ids = new Set(snapshot.nodes.filter((n) => n.parentId === undefined && nodesRef.current.find((x) => x.id === n.id)?.deletable !== false).map((n) => n.id));
         updateNodes((ns) => pruneNodes(ns.filter((n) => !ids.has(n.id))));
       }
       return true;
@@ -1167,19 +1234,29 @@ export function App() {
     const ns = nodesRef.current;
     const node = ns.find((n) => n.id === id);
     const { isFront, isBack } = stackPosition(ns, stackGroup, id);
+    const locked = isLockedIn(ns, id);
+    const own = !!(node?.data as { locked?: boolean } | undefined)?.locked;
+    // Unlock where the lock is; a node locked with its container says so instead.
+    const lockItem: HeaderMenuItem | false = own
+      ? { icon: 'unlock', label: 'Unlock', onClick: () => actionsRef.current?.setLocked(id, false) }
+      : locked
+        ? { icon: 'lock', label: `Locked with its ${lockOwnerKind(ns, id)}`, disabled: true, onClick: () => {} }
+        : !!node && isLockableType(node.type) && { icon: 'lock', label: 'Lock (protect from changes)', onClick: () => actionsRef.current?.setLocked(id, true) };
     return [
+      lockItem,
+      'separator',
       { icon: 'screen-full', label: 'Focus on this paper', onClick: () => actionsRef.current?.focusNode(id) },
       'separator',
       ...MENU_ITEMS.map(({ op, label, icon }) => ({
         icon,
         label,
-        disabled: op === 'front' || op === 'forward' ? isFront : isBack,
+        disabled: locked || (op === 'front' || op === 'forward' ? isFront : isBack),
         onClick: () => restackNode(id, op),
       })),
       'separator',
       node && copyable(node) && { icon: 'copy', label: 'Duplicate', onClick: () => duplicateSelection(id) },
-      node && isGroup(node) && { icon: 'ungroup-by-ref-type', label: 'Ungroup', onClick: () => actionsRef.current?.ungroup(id) },
-      { icon: 'trash', label: 'Delete', danger: true, onClick: () => actionsRef.current?.remove(id) },
+      node && isGroup(node) && { icon: 'ungroup-by-ref-type', label: 'Ungroup', disabled: locked, onClick: () => actionsRef.current?.ungroup(id) },
+      { icon: 'trash', label: 'Delete', danger: true, disabled: node?.deletable === false, onClick: () => actionsRef.current?.remove(id) },
     ];
   };
   const nodeMenuItemsRef = useRef(nodeMenuItems);
@@ -1192,7 +1269,9 @@ export function App() {
   const paneMenuItems = (): MenuEntries => {
     const entry = (kind: 'file' | 'editor' | 'folder', show: boolean): HeaderMenuItem => {
       const fallback = kind === 'file' ? DEFAULT_FILE_SHOW_TITLE : kind === 'folder' ? DEFAULT_FOLDER_SHOW_TITLE : DEFAULT_EDITOR_SHOW_TITLE;
-      const changes = (n: RFNode): n is RFFileNode | RFEditorNode | RFFolderNode => isTitled(n) && n.type === kind && (n.data.showTitle ?? fallback) !== show;
+      // Locked papers keep their title as it is.
+      const changes = (n: RFNode): n is RFFileNode | RFEditorNode | RFFolderNode =>
+        isTitled(n) && n.type === kind && (n.data.showTitle ?? fallback) !== show && !isLockedIn(nodesRef.current, n.id);
       return {
         icon: show ? 'eye' : 'eye-closed',
         label: `${show ? 'Show' : 'Hide'} ${kind} titles`,

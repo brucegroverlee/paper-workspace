@@ -4,7 +4,7 @@ import { moduleSpecifierAt, quotedStringAt } from '../shared/imports';
 import { baseName } from '../shared/paths';
 import { DEFAULT_EDITOR_SHOW_TITLE, type LineRange } from '../shared/workspace';
 import type { EditorSettings } from '../shared/protocol';
-import { useDoc, useWorkspace, type EditorNodeData, type RFEditorNode } from './context';
+import { useDoc, useLocked, useWorkspace, type EditorNodeData, type RFEditorNode } from './context';
 import { monaco } from './monaco';
 import { ZOOM_LIMITS } from './Toolbar';
 import { NodeHandles } from './handles';
@@ -17,6 +17,7 @@ import { useTagMenuItem } from './Tags';
 const LIVE_EDITOR_MIN_ZOOM = 0.35;
 const LINE_NUMBERS_MIN_CHARS = 4;
 const LINE_DECORATIONS_WIDTH = 12;
+const READ_ONLY_MESSAGE = { value: 'This paper is locked. Unlock it from its menu to edit the code.' };
 
 const zoomSelector = (s: { transform: [number, number, number] }) => s.transform[2];
 
@@ -82,8 +83,9 @@ function linkRangeAt(model: monaco.editor.ITextModel, e: monaco.editor.IEditorMo
 
 // ---- node -------------------------------------------------------------------------------------------
 
-export const EditorNode = memo(function EditorNode({ id, data, selected, parentId, width }: NodeProps<RFEditorNode>) {
+export const EditorNode = memo(function EditorNode({ id, data, selected, parentId, width, deletable }: NodeProps<RFEditorNode>) {
   const ctx = useWorkspace();
+  const locked = useLocked(id) !== '';
   const doc = useDoc(data.file);
   const missing = !!doc?.missing;
   // Default title: the first highlighted line, live from the model (the saved anchor until it loads).
@@ -94,7 +96,8 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
   const titleItems = useTitleMenuItems(id, data, DEFAULT_EDITOR_SHOW_TITLE);
   const tagItem = useTagMenuItem(id, data);
   const headerColor = useHeaderColor(id, data);
-  const menuItems = (): MenuEntries => [
+  // A locked snippet keeps only the entries that change nothing (and Unlock, from nodeMenuItems).
+  const menuItems = (): MenuEntries => locked ? [] : [
     ...(missing ? [] : targetItems),
     'separator',
     { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
@@ -110,7 +113,7 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
   return (
     <>
       <div className={`pw-editor${selected ? ' selected' : ''}`}>
-        <NodeResizer isVisible={selected} minWidth={ctx.config.minNodeWidth} minHeight={ctx.config.minNodeHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
+        <NodeResizer isVisible={selected && !locked} minWidth={ctx.config.minNodeWidth} minHeight={ctx.config.minNodeHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
         <NodeHandles />
         <header
           ref={headerColor.header.ref}
@@ -127,9 +130,11 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
             </button>
           )}
           <HeaderMenu items={() => [...menuItems(), 'separator', ...ctx.nodeMenuItems(id)]} />
-          <button className="pw-icon nodrag" title="Remove this snippet" onClick={() => ctx.remove(id)}>
-            <span className="codicon codicon-close" />
-          </button>
+          {deletable !== false && (
+            <button className="pw-icon nodrag" title="Remove this snippet" onClick={() => ctx.remove(id)}>
+              <span className="codicon codicon-close" />
+            </button>
+          )}
         </header>
         <EditorBody id={id} data={data} fileNodeId={parentId!} onContextMenu={openMenu} />
       </div>
@@ -189,6 +194,8 @@ export function EditorBody(props: { id: string; data: EditorNodeData; fileNodeId
   const doc = useDoc(data.file);
   const zoom = useStore(zoomSelector);
   const live = zoom >= LIVE_EDITOR_MIN_ZOOM;
+  // The code of a locked snippet (or of one in a locked file, folder or group) is read-only.
+  const readOnly = useLocked(id) !== '';
   const body = useRef<HTMLDivElement>(null);
   const rf = useReactFlow();
 
@@ -235,6 +242,7 @@ export function EditorBody(props: { id: string; data: EditorNodeData; fileNodeId
           model={doc.model}
           target={data.target}
           settings={ctx.settings}
+          readOnly={readOnly}
           onFocus={() => ctx.focusEditor(id)}
           onGoToDefinition={(line, column) => ctx.goToDefinition(data.file, line, column)}
         />
@@ -274,10 +282,11 @@ function LiveEditor(props: {
   model: monaco.editor.ITextModel;
   target: LineRange | undefined;
   settings: EditorSettings;
+  readOnly: boolean;
   onFocus(): void;
   onGoToDefinition(line: number, column: number): void;
 }) {
-  const { id, model, target, settings } = props;
+  const { id, model, target, settings, readOnly } = props;
   const container = useRef<HTMLDivElement>(null);
   const overflow = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -336,6 +345,8 @@ function LiveEditor(props: {
       overflowWidgetsDomNode: overflow.current!,
       // The classic hidden-textarea input path works in every host (older Electron in forks, automation).
       editContext: false,
+      readOnly,
+      readOnlyMessage: READ_ONLY_MESSAGE,
     });
     editor.current = ed;
     liveEditors.set(id, ed);
@@ -418,6 +429,10 @@ function LiveEditor(props: {
       tabSize: settings.tabSize,
     });
   }, [settings]);
+
+  useLayoutEffect(() => {
+    editor.current?.updateOptions({ readOnly });
+  }, [readOnly]);
 
   // Target highlight: owned by this editor, so other editors of the same file don't show it.
   useEffect(() => {

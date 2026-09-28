@@ -44,6 +44,8 @@ export interface FileNode {
    * paper color. A combined (single-snippet) node has no body to show it on.
    */
   color?: string;
+  /** Protected from accidental changes (moving, resizing, editing, deleting), with everything inside it; undefined = not locked. */
+  locked?: boolean;
   position: XY;
   width: number;
   height: number;
@@ -74,6 +76,8 @@ export interface EditorNode {
   headerColor?: string;
   /** Tags on this snippet (see FileNode). A combined (single-snippet) node shows the file's tags: the snippet's join them. */
   tags?: string[];
+  /** See FileNode: protects the snippet and its code. A combined (single-snippet) node shows the file's lock: the snippet's joins it. */
+  locked?: boolean;
   /** Relative to the parent file node. */
   position: XY;
   width: number;
@@ -101,6 +105,8 @@ export interface FolderNode {
   tags?: string[];
   /** Body color (`#rrggbb`), like a group's; undefined = the theme's paper color. */
   color?: string;
+  /** See FileNode: a locked folder also protects everything inside it. */
+  locked?: boolean;
   position: XY;
   width: number;
   height: number;
@@ -130,6 +136,8 @@ export interface GroupNode {
   strokeStyle?: GroupBorderStyle;
   /** Caption shown centered below the box; undefined = no annotation (the default), `''` = shown but still empty. */
   annotation?: string;
+  /** See FileNode: a locked group also protects everything inside it. */
+  locked?: boolean;
   position: XY;
   width: number;
   height: number;
@@ -377,6 +385,19 @@ export const isFolderNode = (n: WorkspaceNode): n is FolderNode => n.type === 'f
 /** Kinds of box other boxes can sit inside. */
 export const isContainerType = (type: string | undefined) => type === 'group' || type === 'folder';
 export const isBoxNode = (n: WorkspaceNode): n is BoxNode => n.type !== 'editor';
+/** Kinds of node that can be locked (whatever sits inside them is locked with them). */
+export const isLockableType = (type: string | undefined) => type === 'file' || type === 'editor' || type === 'folder' || type === 'group';
+
+/** Whether a node is locked: it, or a group, folder or file it sits in (at any depth), is locked. */
+export function isLocked(workspace: WorkspaceFile, id: string): boolean {
+  const byId = new Map(workspace.nodes.map((n) => [n.id, n]));
+  let n = byId.get(id);
+  for (let i = 0; n && i <= workspace.nodes.length; i++) {
+    if ((n as { locked?: boolean }).locked) return true;
+    n = n.parent !== undefined ? byId.get(n.parent) : undefined;
+  }
+  return false;
+}
 
 function extOf(p: string) {
   return p.split(/[?#]/)[0].split('.').pop()?.toLowerCase() ?? '';
@@ -544,6 +565,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
     if (typeof n.id !== 'string') continue;
     const box = { id: n.id, parent: typeof n.parent === 'string' ? n.parent : undefined, position: xy(n.position) };
     const annotation = typeof n.annotation === 'string' ? n.annotation : undefined; // text and notes have none
+    const locked = n.locked === true ? true : undefined; // kept by files, editors, folders and groups
     // Title labels (files and editors): an empty title means the base name; showTitle is kept only when not the default.
     const title = typeof n.title === 'string' && n.title ? n.title : undefined;
     const showTitle = (fallback: boolean) => (typeof n.showTitle === 'boolean' && n.showTitle !== fallback ? n.showTitle : undefined);
@@ -552,7 +574,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
       height: Math.max(NODE_SIZE_FLOOR, num(n.height, d.height)),
     });
     if (n.type === 'file' && typeof n.file === 'string') {
-      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, title, showTitle: showTitle(DEFAULT_FILE_SHOW_TITLE), headerColor: color(n.headerColor), tags: nodeTags(n.tags), color: color(n.color), width: num(n.width, 0), height: num(n.height, 0) };
+      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, title, showTitle: showTitle(DEFAULT_FILE_SHOW_TITLE), headerColor: color(n.headerColor), tags: nodeTags(n.tags), color: color(n.color), locked, width: num(n.width, 0), height: num(n.height, 0) };
       files.push(f);
       boxes.push(f);
     } else if (n.type === 'folder' && typeof n.folder === 'string') {
@@ -566,6 +588,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
         headerColor: color(n.headerColor),
         tags: nodeTags(n.tags),
         color: color(n.color),
+        locked,
         ...size(DEFAULT_FOLDER_SIZE),
       });
     } else if (n.type === 'group') {
@@ -585,6 +608,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
         strokeWidth: strokeWidth > 0 && strokeWidth !== DEFAULT_GROUP_BORDER_WIDTH ? strokeWidth : undefined,
         strokeStyle: n.strokeStyle === 'solid' ? undefined : oneOf(GROUP_BORDER_STYLES, n.strokeStyle),
         annotation,
+        locked,
         ...size(DEFAULT_GROUP_SIZE),
       });
     } else if (n.type === 'text' || n.type === 'note') {
@@ -630,6 +654,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
         showTitle: showTitle(DEFAULT_EDITOR_SHOW_TITLE),
         headerColor: color(n.headerColor),
         tags: nodeTags(n.tags),
+        locked,
         position: xy(n.position, { x: FILE_PADDING, y: FILE_HEADER_HEIGHT }),
         width: Math.max(NODE_SIZE_FLOOR, num(n.width, DEFAULT_EDITOR_WIDTH)),
         height: Math.max(NODE_SIZE_FLOOR, num(n.height, DEFAULT_EDITOR_HEIGHT)),
@@ -800,6 +825,7 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
     ...(n.headerColor ? { headerColor: n.headerColor } : {}),
   });
   const tags = (n: { tags?: string[] }) => (n.tags?.length ? { tags: [...n.tags] } : {});
+  const locked = (n: { locked?: boolean }) => (n.locked ? { locked: true } : {});
   const out = {
     version: WORKSPACE_VERSION,
     ...(workspace.tags?.length ? { tags: workspace.tags.map((t) => ({ id: t.id, label: t.label, color: t.color })) } : {}),
@@ -809,9 +835,9 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
     nodes: parentsFirst(workspace.nodes, (n) => n.parent).map((n) => {
       switch (n.type) {
         case 'file':
-          return { ...head(n), file: n.file, ...annotation(n), ...title(n, DEFAULT_FILE_SHOW_TITLE), ...tags(n), ...(n.color ? { color: n.color } : {}), ...rect(n) };
+          return { ...head(n), file: n.file, ...annotation(n), ...title(n, DEFAULT_FILE_SHOW_TITLE), ...tags(n), ...(n.color ? { color: n.color } : {}), ...locked(n), ...rect(n) };
         case 'folder':
-          return { ...head(n), folder: n.folder, ...annotation(n), ...title(n, DEFAULT_FOLDER_SHOW_TITLE), ...tags(n), ...(n.color ? { color: n.color } : {}), ...rect(n) };
+          return { ...head(n), folder: n.folder, ...annotation(n), ...title(n, DEFAULT_FOLDER_SHOW_TITLE), ...tags(n), ...(n.color ? { color: n.color } : {}), ...locked(n), ...rect(n) };
         case 'group':
           return {
             ...head(n),
@@ -825,6 +851,7 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
             ...(n.strokeWidth && n.strokeWidth !== DEFAULT_GROUP_BORDER_WIDTH ? { strokeWidth: n.strokeWidth } : {}),
             ...(n.strokeStyle && n.strokeStyle !== 'solid' ? { strokeStyle: n.strokeStyle } : {}),
             ...annotation(n),
+            ...locked(n),
             ...rect(n),
           };
         case 'text':
@@ -863,6 +890,7 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
             ...annotation(n),
             ...title(n, DEFAULT_EDITOR_SHOW_TITLE),
             ...tags(n),
+            ...locked(n),
             ...rect(n),
           };
       }
@@ -1009,6 +1037,8 @@ export function addSnippet(
       ? editors.find((e) => e.target && e.target.start <= target.start && e.target.end >= target.end)
       : editors.find((e) => !e.target) ?? editors[0];
     if (reuse) return { workspace, editorId: reuse.id, created: false };
+    // A locked file gets no new snippets: its first one is revealed instead.
+    if (editors.length && isLocked(workspace, fileNode.id)) return { workspace, editorId: editors[0].id, created: false };
     if (editors.length === 1) expandToGroup(fileNode, editors[0]);
     const editor: EditorNode = {
       id: makeId('e'),
@@ -1070,11 +1100,11 @@ export function isInFolder(p: string, folder: string): boolean {
   return fold(p).startsWith(fold(dir) + '/');
 }
 
-/** The folder node a new paper for `file` belongs in: the deepest folder on the canvas containing it. */
+/** The folder node a new paper for `file` belongs in: the deepest unlocked folder on the canvas containing it. */
 export function folderFor(workspace: WorkspaceFile, file: string): FolderNode | undefined {
   let best: FolderNode | undefined;
   for (const n of workspace.nodes) {
-    if (isFolderNode(n) && isInFolder(file, n.folder) && (!best || n.folder.length > best.folder.length)) best = n;
+    if (isFolderNode(n) && isInFolder(file, n.folder) && (!best || n.folder.length > best.folder.length) && !isLocked(workspace, n.id)) best = n;
   }
   return best;
 }

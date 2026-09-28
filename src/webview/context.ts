@@ -1,5 +1,5 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
-import type { Edge, Node } from '@xyflow/react';
+import { useStore, type Edge, type Node } from '@xyflow/react';
 import type { GroupBorderStyle, GroupTitlePosition, LineRange, TagPlacement, WorkspaceEdge, WorkspaceTag } from '../shared/workspace';
 import type { CanvasConfig, EditorSettings } from '../shared/protocol';
 import { docStore } from './docStore';
@@ -9,10 +9,12 @@ import type { MenuEntries } from './HeaderMenu';
 export type TitleData = { title?: string; showTitle?: boolean; headerColor?: string };
 /** Ids of the workspace tags on a file or editor. */
 export type TagData = { tags?: string[] };
+/** A file, editor, folder or group's own lock (what is inside it is locked with it); see the workspace model. */
+export type LockData = { locked?: boolean };
 /** `color` = body color around the snippets (see FolderNodeData). */
-export type FileNodeData = { file: string; annotation?: string; color?: string } & TitleData & TagData;
+export type FileNodeData = { file: string; annotation?: string; color?: string } & TitleData & TagData & LockData;
 /** `color` = body color, edited from the node toolbar like a group's. */
-export type FolderNodeData = { folder: string; annotation?: string; color?: string } & TitleData & TagData;
+export type FolderNodeData = { folder: string; annotation?: string; color?: string } & TitleData & TagData & LockData;
 export type EditorNodeData = {
   /** Copied from the parent file node for convenience. */
   file: string;
@@ -20,7 +22,8 @@ export type EditorNodeData = {
   anchor?: string;
   annotation?: string;
 } & TitleData &
-  TagData;
+  TagData &
+  LockData;
 
 export type GroupNodeData = {
   title: string;
@@ -33,7 +36,7 @@ export type GroupNodeData = {
   strokeWidth?: number;
   strokeStyle?: GroupBorderStyle;
   annotation?: string;
-};
+} & LockData;
 export type TextNodeData = { text: string; color?: string; textColor?: string; fontSize?: number; fontWeight?: number };
 export type MediaNodeData = { src: string; annotation?: string };
 export type ShapeNodeData = {
@@ -101,6 +104,8 @@ export interface WorkspaceActions {
   removeLink(id: string): void;
   /** Set a node's height (text nodes grow with their content). */
   setHeight(id: string, height: number): void;
+  /** Lock or unlock a file, editor, folder or group (the only change a locked node takes). */
+  setLocked(id: string, locked: boolean): void;
   /** Move a group's children to its parent and remove the group. */
   ungroup(id: string): void;
   /** Webview URL of a media `src` (workspace path). */
@@ -128,6 +133,23 @@ export function useWorkspace() {
   const ctx = useContext(WorkspaceContext);
   if (!ctx) throw new Error('WorkspaceContext missing');
   return ctx;
+}
+
+/**
+ * How a node is locked: `'own'` (it is locked itself), `'parent'` (a group, folder or file it sits in is locked) or
+ * `''` (not locked). A locked node can't be moved, resized, edited or deleted.
+ */
+export type LockState = 'own' | 'parent' | '';
+
+export function useLocked(id: string): LockState {
+  return useStore((s) => {
+    let n = s.nodeLookup.get(id);
+    for (let i = 0; n && i <= s.nodeLookup.size; i++) {
+      if ((n.data as LockData).locked) return i === 0 ? 'own' : 'parent';
+      n = n.parentId !== undefined ? s.nodeLookup.get(n.parentId) : undefined;
+    }
+    return '';
+  });
 }
 
 /** Re-render when a document's content or state changes. */

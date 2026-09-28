@@ -129,6 +129,15 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
   the layout, checks them when they appear and re-checks them on file-system deletes and creates (`folderState`). The
   header gets a warning badge, a struck-through path and a *Find the folder* button (a folder dialog, `relinkFolder` →
   `folderRelinked`); an empty folder also shows the file's "not found" notice. It recovers if the folder comes back.
+* **Lock** (`"locked": true` on a file, editor, folder or group; *Lock* / *Unlock* in the node menu, and in a group's
+  toolbar): protects a part of the canvas from accidental changes. A locked node and everything inside it (at any depth)
+  can't be dragged or resized, get no edits (title, colors, tags, annotation, target, text, snippets; stacking and
+  ungrouping are disabled), and their code is read-only in Monaco. Neither they nor what contains them can be deleted, a
+  locked container takes no drops, pastes or new files, and wrapping its content in a group is refused. The webview sets
+  React Flow's `draggable`/`deletable` from the locks (`applyLocks`) and every edit action checks them again. Only the
+  node that holds the lock shows the icon (before its title) and offers *Unlock*; the ones inside it say *Locked with its
+  folder* (group, file). A combined single-snippet node shows the file's lock (the snippet's joins it, like tags).
+  Copies start unlocked.
 * **Text** (no background, `color` = text color, height follows the content) and **note** (sticky note, `color` =
   background, `textColor` = text color, automatic contrast when unset). Both have an optional `fontSize` (any px value,
   typed or picked from the toolbar dropdown) and `fontWeight`. Double-click to edit; an emptied text is removed.

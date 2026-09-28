@@ -2,7 +2,7 @@ import { memo, type CSSProperties } from 'react';
 import { NodeResizer, useStore, type NodeProps } from '@xyflow/react';
 import { DEFAULT_FOLDER_SHOW_TITLE } from '../shared/workspace';
 import { baseName, displayPath } from '../shared/paths';
-import { useWorkspace, type RFFolderNode } from './context';
+import { useLocked, useWorkspace, type RFFolderNode } from './context';
 import { HeaderMenu, type MenuEntries } from './HeaderMenu';
 import { NodeHandles } from './handles';
 import { Annotation, useChildrenExtent, useToggleAnnotation } from './BoardNodes';
@@ -15,8 +15,9 @@ import { toneOver } from './tone';
  * A project folder: a container like a group (any box can sit in it, new files from the folder are added to it) with a
  * file's title bar, title label, tags and annotation. Its body color is picked from its menu.
  */
-export const FolderNode = memo(function FolderNode({ id, data, selected, width }: NodeProps<RFFolderNode>) {
+export const FolderNode = memo(function FolderNode({ id, data, selected, width, deletable }: NodeProps<RFFolderNode>) {
   const ctx = useWorkspace();
+  const locked = useLocked(id) !== '';
   const extent = useChildrenExtent(id);
   const missing = useFolderMissing(data.folder);
   const empty = useStore((s) => !s.nodes.some((n) => n.parentId === id));
@@ -30,7 +31,8 @@ export const FolderNode = memo(function FolderNode({ id, data, selected, width }
   const body = { color: data.color, alpha: data.color ? 0.6 : 0.45 };
   const headerColor = useHeaderColor(id, data, body);
   const bodyColor = useBodyColor(id, data.color, headerColor.header.ref);
-  const menuItems = (): MenuEntries => [
+  // A locked folder keeps only the entries that change nothing (and Unlock, from nodeMenuItems).
+  const menuItems = (): MenuEntries => locked ? [] : [
     { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
     tagItem,
     ...titleItems,
@@ -54,7 +56,7 @@ export const FolderNode = memo(function FolderNode({ id, data, selected, width }
         onContextMenu={(e) => e.target === e.currentTarget && openMenu(e)}
       >
         <NodeResizer
-          isVisible={selected}
+          isVisible={selected && !locked}
           minWidth={Math.max(ctx.config.minNodeWidth, extent.w)}
           minHeight={Math.max(ctx.config.minNodeHeight, extent.h)}
           lineClassName="pw-resize-line"
@@ -85,9 +87,11 @@ export const FolderNode = memo(function FolderNode({ id, data, selected, width }
             </button>
           )}
           <HeaderMenu items={() => [...menuItems(), 'separator', ...ctx.nodeMenuItems(id)]} />
-          <button className="pw-icon nodrag" title="Remove folder and its content from canvas" onClick={() => ctx.remove(id)}>
-            <span className="codicon codicon-close" />
-          </button>
+          {deletable !== false && (
+            <button className="pw-icon nodrag" title="Remove folder and its content from canvas" onClick={() => ctx.remove(id)}>
+              <span className="codicon codicon-close" />
+            </button>
+          )}
         </header>
         {/* Like a missing file's body; with content inside, the header alone shows the state (the notice would cover it). */}
         {missing && empty && (

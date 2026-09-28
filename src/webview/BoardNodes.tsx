@@ -28,7 +28,8 @@ import {
   isVideoPath,
 } from '../shared/workspace';
 import { baseName } from '../shared/paths';
-import { useWorkspace, type RFGroupNode, type RFMediaNode, type RFShapeNode, type RFTextNode } from './context';
+import { useLocked, useWorkspace, type RFGroupNode, type RFMediaNode, type RFShapeNode, type RFTextNode } from './context';
+import { LockBadge } from './NodeTitle';
 import { shapeDef, textBoxOf, type ShapeDef } from './shapes';
 import { NodeHandles } from './handles';
 
@@ -65,6 +66,7 @@ export function useChildrenExtent(id: string) {
 
 export const GroupNode = memo(function GroupNode({ id, data, selected }: NodeProps<RFGroupNode>) {
   const ctx = useWorkspace();
+  const locked = useLocked(id) !== '';
   const [editing, setEditing] = useEditing(id);
   const extent = useChildrenExtent(id);
   const borderStyle = data.strokeStyle ?? 'solid';
@@ -98,7 +100,7 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: NodePro
         }}
       >
         <NodeResizer
-          isVisible={selected}
+          isVisible={selected && !locked}
           minWidth={Math.max(ctx.config.minNodeWidth, extent.w)}
           minHeight={Math.max(ctx.config.minNodeHeight, extent.h + (vertical === 'bottom' ? bar - GROUP_PADDING / 2 : 0))}
           lineClassName="pw-resize-line"
@@ -116,19 +118,21 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: NodePro
           titlePosition={position}
           annotation={data.annotation}
           group
+          lockable
         />
         <NodeHandles />
         <header
           className="pw-group-header"
           style={{ height: bar }}
-          onDoubleClick={() => setEditing(true)}
+          onDoubleClick={() => (locked ? ctx.focusNode(id) : setEditing(true))}
           onContextMenu={(e) => {
             e.preventDefault();
             e.stopPropagation();
             ctx.openNodeMenu(id, e.clientX, e.clientY);
           }}
         >
-          {editing ? (
+          {data.locked && <LockBadge />}
+          {editing && !locked ? (
             <TitleInput
               value={data.title}
               style={titleFont}
@@ -138,7 +142,7 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: NodePro
               }}
             />
           ) : (
-            <span className={`pw-group-title${data.title ? '' : ' empty'}`} style={data.title ? titleFont : { fontSize }} title="Double-click to rename">
+            <span className={`pw-group-title${data.title ? '' : ' empty'}`} style={data.title ? titleFont : { fontSize }} title={locked ? 'Locked' : 'Double-click to rename'}>
               {data.title || 'Untitled group'}
             </span>
           )}
@@ -181,6 +185,7 @@ function TitleInput(props: { value: string; style?: CSSProperties; onDone(v: str
 /** Floating text (no background, grows with its content) or a sticky note (colored, fixed size, grows if needed). */
 export const TextNode = memo(function TextNode({ id, type, data, selected, height }: NodeProps<RFTextNode>) {
   const ctx = useWorkspace();
+  const locked = useLocked(id) !== '';
   const [editing, setEditing] = useEditing(id);
   const note = type === 'note';
   const contentRef = useRef<HTMLDivElement>(null);
@@ -221,7 +226,7 @@ export const TextNode = memo(function TextNode({ id, type, data, selected, heigh
     <div
       className={`pw-text-node ${note ? 'pw-note' : 'pw-text'}${selected ? ' selected' : ''}${editing ? ' editing' : ''}`}
       style={style}
-      onDoubleClick={() => setEditing(true)}
+      onDoubleClick={() => (locked ? ctx.focusNode(id) : setEditing(true))}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -229,10 +234,11 @@ export const TextNode = memo(function TextNode({ id, type, data, selected, heigh
       }}
     >
       {note ? (
-        <NodeResizer isVisible={selected && !editing} minWidth={60} minHeight={40} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
+        <NodeResizer isVisible={selected && !editing && !locked} minWidth={60} minHeight={40} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
       ) : (
         selected &&
-        !editing && (
+        !editing &&
+        !locked && (
           <>
             <NodeResizeControl position={Position.Left} variant={ResizeControlVariant.Line} resizeDirection="horizontal" minWidth={40} className="pw-resize-line" />
             <NodeResizeControl position={Position.Right} variant={ResizeControlVariant.Line} resizeDirection="horizontal" minWidth={40} className="pw-resize-line" />
@@ -328,14 +334,16 @@ export function Annotation(props: { id: string; value?: string; inline?: boolean
 
 function AnnotationCaption(props: { id: string; value: string; inline?: boolean }) {
   const ctx = useWorkspace();
+  const locked = useLocked(props.id) !== '';
   const [editing, setEditing] = useState(() => editAnnotationOnMount.delete(props.id));
   return (
     <div
       className={`pw-annotation${props.inline ? ' inline' : ''}${editing ? ' editing' : ''}`}
-      title={editing ? undefined : 'Annotation (double-click to edit)'}
+      title={editing ? undefined : locked ? 'Annotation (locked)' : 'Annotation (double-click to edit)'}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        setEditing(true);
+        if (locked) ctx.focusNode(props.id);
+        else setEditing(true);
       }}
     >
       {editing ? (
@@ -383,6 +391,7 @@ export function ShapeSvg(props: { def: ShapeDef; width: number; height: number; 
 /** A diagram shape from the shapes panel, with a centered label (double-click to edit). */
 export const ShapeNode = memo(function ShapeNode({ id, data, selected, width, height }: NodeProps<RFShapeNode>) {
   const ctx = useWorkspace();
+  const locked = useLocked(id) !== '';
   const [editing, setEditing] = useEditing(id);
   const def = shapeDef(data.shape);
   const w = width ?? def.size.width;
@@ -417,14 +426,14 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected, width, he
     <>
       <div
         className={`pw-shape${selected ? ' selected' : ''}${editing ? ' editing' : ''}`}
-        onDoubleClick={() => setEditing(true)}
+        onDoubleClick={() => (locked ? ctx.focusNode(id) : setEditing(true))}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
           ctx.openNodeMenu(id, e.clientX, e.clientY);
         }}
       >
-        <NodeResizer isVisible={selected && !editing} minWidth={NODE_SIZE_FLOOR} minHeight={NODE_SIZE_FLOOR} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
+        <NodeResizer isVisible={selected && !editing && !locked} minWidth={NODE_SIZE_FLOOR} minHeight={NODE_SIZE_FLOOR} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
         <BoardToolbar
           id={id}
           colors={[
@@ -451,6 +460,7 @@ export const ShapeNode = memo(function ShapeNode({ id, data, selected, width, he
 
 export const MediaNode = memo(function MediaNode({ id, data, selected }: NodeProps<RFMediaNode>) {
   const ctx = useWorkspace();
+  const locked = useLocked(id) !== '';
   const [failed, setFailed] = useState(false);
   const video = isVideoPath(data.src) || data.src.startsWith('data:video/');
   const url = ctx.mediaUrl(data.src);
@@ -468,7 +478,7 @@ export const MediaNode = memo(function MediaNode({ id, data, selected }: NodePro
           ctx.openNodeMenu(id, e.clientX, e.clientY);
         }}
       >
-        <NodeResizer isVisible={selected} keepAspectRatio minWidth={40} minHeight={40} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
+        <NodeResizer isVisible={selected && !locked} keepAspectRatio minWidth={40} minHeight={40} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
         <BoardToolbar id={id} annotation={data.annotation} />
         <NodeHandles />
         {video && (
@@ -541,7 +551,8 @@ const TitlePositionIcon = ({ position }: { position: GroupTitlePosition }) => (
 /**
  * Passing `annotation` (the node's current one, even undefined) adds the annotation toggle; text and notes leave it out.
  * `font.defaultWeight` is the weight stored as undefined (default: regular); `titlePosition` adds the group title position picker;
- * `border` adds border style and thickness pickers after the border color.
+ * `border` adds border style and thickness pickers after the border color; `lockable` adds the lock button.
+ * While the node is locked (or sits in something locked) the toolbar only shows the lock.
  */
 function BoardToolbar(props: {
   id: string;
@@ -550,15 +561,34 @@ function BoardToolbar(props: {
   titlePosition?: GroupTitlePosition;
   border?: { width: number; style: GroupBorderStyle };
   group?: boolean;
+  lockable?: boolean;
   annotation?: string;
 }) {
   const ctx = useWorkspace();
+  const lock = useLocked(props.id);
   const [open, setOpen] = useState<Popup | null>(null);
   const toggle = (p: Popup) => setOpen((o) => (o === p ? null : p));
   const close = useCallback(() => setOpen(null), []);
   const slot = props.colors?.find((c) => c.key === open);
   const toggleAnnotation = useToggleAnnotation(props.id, props.annotation);
   const annotatable = 'annotation' in props;
+
+  if (lock)
+    return (
+      <NodeToolbar position={Position.Top} offset={10} className="pw-node-toolbar" onPointerDown={stop} onDoubleClick={stop}>
+        <div className="pw-node-toolbar-bar">
+          {lock === 'own' ? (
+            <ToolbarButton label="Unlock (allow changes again)" active onClick={() => ctx.setLocked(props.id, false)}>
+              <span className="codicon codicon-unlock" />
+            </ToolbarButton>
+          ) : (
+            <ToolbarButton label="Locked with the group, folder or file it is in" disabled onClick={() => {}}>
+              <span className="codicon codicon-lock" />
+            </ToolbarButton>
+          )}
+        </div>
+      </NodeToolbar>
+    );
 
   return (
     <NodeToolbar position={Position.Top} offset={10} className="pw-node-toolbar" onPointerDown={stop} onDoubleClick={stop}>
@@ -664,6 +694,11 @@ function BoardToolbar(props: {
             <span className="codicon codicon-comment" />
           </ToolbarButton>
         )}
+        {props.lockable && (
+          <ToolbarButton label="Lock (protect it and its content from changes)" onClick={() => ctx.setLocked(props.id, true)}>
+            <span className="codicon codicon-lock" />
+          </ToolbarButton>
+        )}
         {props.group && (
           <ToolbarButton label="Ungroup (keep the content)" onClick={() => ctx.ungroup(props.id)}>
             <span className="codicon codicon-ungroup-by-ref-type" />
@@ -677,9 +712,16 @@ function BoardToolbar(props: {
   );
 }
 
-export function ToolbarButton(props: { label: string; active?: boolean; onClick(): void; children: ReactNode }) {
+export function ToolbarButton(props: { label: string; active?: boolean; disabled?: boolean; onClick(): void; children: ReactNode }) {
   return (
-    <button className={`pw-node-toolbar-button${props.active ? ' active' : ''}`} title={props.label} aria-label={props.label} aria-pressed={props.active} onClick={props.onClick}>
+    <button
+      className={`pw-node-toolbar-button${props.active ? ' active' : ''}`}
+      title={props.label}
+      aria-label={props.label}
+      aria-pressed={props.active}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
       {props.children}
     </button>
   );
