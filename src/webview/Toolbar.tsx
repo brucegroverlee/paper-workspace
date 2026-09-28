@@ -305,6 +305,7 @@ export function HelpOverlay(props: { onClose(): void }) {
     ['Tags', 'Right-click a file, snippet or folder → Add a tag (or Edit tags): pick tags or type a new one; the × on a chip removes it. The tag button in the toolbar edits all of this workspace’s tags'],
     ['Titles & captions', 'Double-click a title to rename it; ⋮ (or right-click) shows or hides it, sets the title bar and body colors, and adds an annotation. Right-click the empty canvas to show or hide all titles or tags'],
     ['Lock', 'Right-click a file, snippet, folder or group → Lock (or the lock button in a group’s toolbar): it and everything inside it can’t be moved, resized, edited or deleted, and its code is read-only. A lock icon shows before its title; Unlock from the same menu'],
+    ['Copy reference', 'Right-click any paper, note, text, shape, group or image → Copy reference, then paste it into an AI chat so it knows which item you mean (right-click the empty canvas for the whole workspace)'],
     ['Media', 'Toolbar image button, Ctrl+V with an image on the clipboard, or drop image/video files'],
     ['Colors & fonts', 'Select a group, text, note or shape and use the toolbar above it; the canvas background is in the ⚙ configuration panel'],
     ['Resize', 'Select a node and drag its handles (the minimum size is in the ⚙ configuration panel)'],

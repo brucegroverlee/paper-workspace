@@ -1246,6 +1246,8 @@ export function App() {
       lockItem,
       'separator',
       { icon: 'screen-full', label: 'Focus on this paper', onClick: () => actionsRef.current?.focusNode(id) },
+      // For pasting into an AI chat: the host copies `paperworkspace:<workspace>#<type>/<id>` (see shared/reference).
+      node?.type && { icon: 'references', label: 'Copy reference', onClick: () => host.postMessage({ type: 'copyReference', node: { type: node.type, id } }) },
       'separator',
       ...MENU_ITEMS.map(({ op, label, icon }) => ({
         icon,
@@ -1302,6 +1304,8 @@ export function App() {
       folders && entry('folder', false),
       'separator',
       tagsEntry,
+      'separator',
+      { icon: 'references', label: 'Copy workspace reference', onClick: () => host.postMessage({ type: 'copyReference' }) },
     ];
   };
 

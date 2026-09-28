@@ -30,6 +30,14 @@ Works in **VS Code**, **Cursor** and **Windsurf / Devin**.
 - **Export / import**: right-click a workspace → *Export…* to save it as a single `.paperbundle` file with all its
   images and videos inside; *Import Workspace…* in the panel title bar adds it to another repository or machine. Code
   papers keep their relative paths, so import into a checkout of the same project.
+- **Copy reference**: right-click any item (file, snippet, folder, group, note, text, shape, image) → *Copy
+  reference* to copy an id such as `paperworkspace:.paperworkspace/Auth.workspace#editor/e_route`. Paste it into an AI
+  chat and an agent using [`SKILL.md`](SKILL.md) opens that workspace and finds the exact item you mean. Right-click the
+  empty canvas → *Copy workspace reference* for the whole canvas.
+- **AI skill**: [`SKILL.md`](SKILL.md) teaches an AI agent to read, explain and build workspaces. Recipes for specific
+  canvases live in [`workflows/`](workflows/) and are meant to be customized per team, e.g.
+  [`code-change-canvas.md`](workflows/code-change-canvas.md) for a canvas of the changes in a branch, session or PR.
+  See [Use the AI skill](#use-the-ai-skill) to add it to your agent.
 - **Ctrl+S** in a canvas saves the layout and every changed file on it.
 - **Explorer sync**: selecting or clicking into a paper selects its file in the Explorer (setting `paperWorkspace.revealInExplorer`).
 
@@ -41,6 +49,82 @@ npm run package
 ```
 
 Then in VS Code / Cursor / Windsurf: *Extensions* → `…` → *Install from VSIX…* → `paper-workspace-0.1.0.vsix`.
+
+## Use the AI skill
+
+[`SKILL.md`](SKILL.md) is an [Agent Skill](https://agentskills.io): it teaches an AI coding agent the workspace format
+and how to read, explain and build canvases. The [`workflows/`](workflows/) folder next to it holds recipes the skill
+reads when they apply (for now, [`code-change-canvas.md`](workflows/code-change-canvas.md) for a canvas of changed
+code). The skill is two parts that must stay together:
+
+```
+paper-workspace/          ← the folder name must be exactly "paper-workspace" (the skill's name)
+├── SKILL.md
+└── workflows/
+    └── code-change-canvas.md
+```
+
+### 1. Copy the skill into your project
+
+Run these from the root of the project you want to use it in (replace `<paper-workspace>` with the path to this
+repository). Commit the folder so your whole team gets it.
+
+**Claude Code**: skills live in `.claude/skills/`.
+
+```bash
+mkdir -p .claude/skills/paper-workspace && cp -r <paper-workspace>/SKILL.md <paper-workspace>/workflows .claude/skills/paper-workspace/
+```
+
+**Codex, Cursor and Devin**: all three read the shared `.agents/skills/` folder.
+
+```bash
+mkdir -p .agents/skills/paper-workspace && cp -r <paper-workspace>/SKILL.md <paper-workspace>/workflows .agents/skills/paper-workspace/
+```
+
+Using several of these tools in one project? Copy it into `.agents/skills/` and also into `.claude/skills/` for Claude
+Code. Devin reads `.claude/skills/` too, so a Claude Code copy alone is enough for Claude Code plus Devin.
+
+**Just for you, in every project**: copy the same folder into your user skills folder instead:
+
+| Tool | User skills folder |
+|---|---|
+| Claude Code | `~/.claude/skills/paper-workspace/` |
+| Codex | `~/.agents/skills/paper-workspace/` |
+| Cursor | `~/.cursor/skills/paper-workspace/` (or `~/.agents/skills/paper-workspace/`) |
+| Devin | `~/.config/devin/skills/paper-workspace/` |
+
+On Windows, `~` is your user folder (`C:\Users\<you>`), and you can copy the folder with the Explorer.
+
+### 2. Customize the workflow (optional)
+
+Open `workflows/code-change-canvas.md` in the copy you just made and edit **section 1, Conventions**: tag names,
+colors, sticky note colors, and when to take screenshots. The steps read their values from that table, so this is
+the only part you need to change. Leave `SKILL.md` as it is; it holds the format rules the extension relies on.
+
+### 3. Use it
+
+Start a new chat or session so the agent picks the skill up. It is used automatically when you ask about workspaces,
+or you can call it by name:
+
+| Tool | Call it explicitly |
+|---|---|
+| Claude Code | `/paper-workspace` |
+| Codex | `$paper-workspace`, or pick it from `/skills` |
+| Cursor | `/paper-workspace` in Agent chat |
+| Devin | `@skills:paper-workspace` |
+
+Things to try:
+
+- "Create a workspace that explains how login works."
+- "Create a canvas with the changes in the current branch." (uses the code change workflow)
+- "Explain `.paperworkspace/Auth.workspace`."
+- Right-click an item on a canvas → **Copy reference**, paste it into the chat, and ask "what does this do?" or "fix
+  this".
+
+### Updating
+
+When `SKILL.md` or the workflows change in this repository, copy them again. If you customized a workflow, merge your
+section 1 changes back in instead of overwriting them.
 
 ## Limitations (v0.1)
 

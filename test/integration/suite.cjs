@@ -145,6 +145,15 @@ exports.run = async function run() {
     assert.ok(labels.includes('seven'), 'completes a declaration from the same file');
   });
 
+  await step('Copy reference puts a reference to the workspace or one of its items on the clipboard', async () => {
+    const copy = (node) => vscode.commands.executeCommand('paperWorkspace._simulate', workspaceUri.toString(), { type: 'copyReference', node });
+    const [editor] = editorsIn(await workspace(), 'src/a.ts');
+    const ref = await copy({ type: 'editor', id: editor.id });
+    assert.equal(ref, `paperworkspace:.paperworkspace/main.workspace#editor/${editor.id}`);
+    assert.equal(await vscode.env.clipboard.readText(), ref);
+    assert.equal(await copy(undefined), 'paperworkspace:.paperworkspace/main.workspace');
+  });
+
   await step('take-over mode: opening a file closes its text tab and adds it to the target', async () => {
     await vscode.commands.executeCommand('paperWorkspace.setMode', 'takeover');
     await vscode.window.showTextDocument(src('b.ts'), { preview: false });

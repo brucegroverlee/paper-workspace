@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { MEDIA_EXTS, WORKSPACE_DIR, isFolderNode, isMediaPath, parseWorkspace, serializeWorkspace, type WorkspaceFile } from '../shared/workspace';
 import type { HostToWebview, TextChange, WebviewToHost } from '../shared/protocol';
 import type { LanguageRequest } from '../shared/language';
+import { formatReference } from '../shared/reference';
 import { WorkspaceStore, canvasConfig, editorSettings, exists, labelFor, replaceDocument, updateCanvasConfig } from './workspaceStore';
 import type { TakeoverController } from './takeover';
 import { findDefinition } from './definition';
@@ -267,6 +268,12 @@ class CanvasSession {
       case 'relinkFolder':
         await this.relinkFolder(m.folder);
         break;
+      case 'copyReference': {
+        const reference = formatReference({ workspace: this.store.toWorkspacePath(this.document.uri, this.document.uri), node: m.node });
+        await vscode.env.clipboard.writeText(reference);
+        void vscode.window.setStatusBarMessage(`Paper Workspace: copied ${reference}`, 4000);
+        return reference; // for integration tests (`_simulate`)
+      }
     }
   }
 

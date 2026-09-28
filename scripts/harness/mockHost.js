@@ -181,6 +181,10 @@
         case 'saveSnapshot':
           window.__lastSnapshot = `data:image/png;base64,${m.data}`;
           return;
+        // The real host writes it to the clipboard; here the last one is kept for inspection.
+        case 'copyReference':
+          window.__lastReference = `paperworkspace:.paperworkspace/harness.workspace${m.node ? `#${m.node.type}/${m.node.id}` : ''}`;
+          return;
         case 'save':
           for (const f of Object.keys(dirty)) {
             if (!dirty[f]) continue;

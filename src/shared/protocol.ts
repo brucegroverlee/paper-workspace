@@ -113,5 +113,10 @@ export type WebviewToHost =
   | { type: 'relinkFolder'; folder: string }
   /** A PNG snapshot (base64) of the current view or the whole workspace; the host asks where to save it. */
   | { type: 'saveSnapshot'; scope: 'view' | 'workspace'; data: string }
+  /**
+   * "Copy reference": the host puts a reference to this workspace, or to one of its nodes, on the clipboard (see
+   * shared/reference), so it can be pasted into an AI chat.
+   */
+  | { type: 'copyReference'; node?: { type: string; id: string } }
   /** IntelliSense for a paper, answered by VS Code's language providers with `languageResult`. */
   | { type: 'language'; id: number; file: string; request: LanguageRequest };

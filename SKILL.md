@@ -1,30 +1,95 @@
 ---
 name: paper-workspace
-description: Read, explain, and create Paper Workspace canvases (`.paperworkspace/*.workspace` files). Use when the user asks what a workspace shows or means, wants a workspace/diagram/canvas explained, or asks to explain how a feature, flow, or piece of code works visually — build a workspace that lays out the real code snippets, diagram shapes, notes, and arrows on a canvas.
+description: Read, explain, and create Paper Workspace canvases (`.paperworkspace/*.workspace` files), and resolve `paperworkspace:` references the user pastes. Use when the user asks what a workspace shows or means, pastes a `paperworkspace:...#type/id` reference to one of its items, wants a workspace/diagram/canvas explained, asks to explain how a feature, flow, or piece of code works visually, or asks for a canvas of changed code (current branch, session work, a feature, fix, PR, or code review; see workflows/code-change-canvas.md) — build a canvas that lays out the real code snippets, folders, diagram shapes, sticky notes, tags, colors, and arrows so the story reads at a glance.
 ---
 
 # Paper Workspace
 
 Paper Workspace is a VS Code / Cursor / Windsurf extension that lays code out "like papers on a desk": an infinite
-canvas holding **live, editable snippets of real files**, next to diagram shapes, sticky notes, text, images, groups,
-and arrows. Each canvas is a JSON file in `.paperworkspace/<Name>.workspace` at the project root. The files are meant
-to be committed, so a workspace is documentation that points at the real code.
+canvas holding **live, editable snippets of real files**, next to project folders, diagram shapes, sticky notes, text,
+images, groups, and arrows. Each canvas is a JSON file in `.paperworkspace/<Name>.workspace` at the project root. The
+files are meant to be committed, so a workspace is documentation that points at the real code.
 
-This skill covers two jobs:
+This skill covers three jobs:
 
 1. **Read**: take a `.workspace` file and explain what it is for, what each part says, and how the parts connect.
-2. **Create**: study a feature or workflow in the codebase and write a new `.workspace` that explains it.
+2. **Resolve a reference**: the user pasted `paperworkspace:<workspace>#<type>/<id>`; find that item and act on it.
+3. **Create**: study a feature, a flow, or a change that was just made, and write a `.workspace` that explains it.
 
-Both jobs need the file format, so it comes first.
+All three need the mental model (section 1) and the file format (section 2), so they come first.
+
+### Workflow files
+
+This file is the foundation: what a workspace is, the format, and the general rules for reading and building one. The
+[`workflows/`](workflows/) folder next to it holds **workflow files**: recipes for specific kinds of canvas, with
+conventions (tag names, colors, what to include) that teams are expected to customize.
+
+| Workflow file | Read it when the user asks for… |
+|---|---|
+| [`workflows/code-change-canvas.md`](workflows/code-change-canvas.md) | A canvas of code that changed: the current branch, this session's work, a feature, fix or PR, or a code review |
+
+When a request matches a workflow file, **read that file before planning the canvas** and follow it. Its conventions
+override the defaults in section 5; everything else in this file (format, layout math, references, validation) still
+applies. If the project has other files in `workflows/`, check their titles too.
 
 ---
 
-## 1. File format (version 2)
+## 1. Mental model: a workspace describes a workflow
+
+A workspace is **not a pile of files**. It is an argument or a tour: "this is how X works" or "this is what changed
+and why". Every element has a job in that story, and the author chose each element *because of* its job. When you
+read a canvas, recover those jobs. When you build one, pick each element for its job.
+
+### What each element means
+
+| Element | Its job in the story | Read it as | Use it for |
+|---|---|---|---|
+| **`text`** (large, bold) | Title, headings | "The question this canvas / area answers" | One title at the top-left; optional section headings |
+| **`file` + `editor`** | Evidence: the real code | "This is where it happens" | A step of the flow; the editor's `target` is the exact lines that matter |
+| **`folder`** | Scope in the project tree | "These papers live in / belong to this directory" | Grouping papers by module or package, e.g. everything a feature touched in `src/auth` |
+| **`group`** | A concept area (not tied to a path) | "These belong together: a layer, a phase, a subsystem, a legend" | Layers (UI / API / DB), phases (Before / After), a legend |
+| **`note`** (sticky note) | The author's voice | "Why", gotchas, decisions, open questions, TODOs | Anything a caption can't say in one phrase |
+| **`annotation`** (caption below a box) | A label for one box | "The role of this one thing", often a numbered step | Every snippet: `1 · Validates the token` |
+| **`tags`** (chips on files, editors, folders) | Categories that cut across the layout | "This paper is a *New* / *Entry point* / *Test* / *Risk*" | Status and role, so the reader can scan for a category anywhere on the canvas |
+| **`headerColor`** (title bar color) | Fast, pre-attentive category | "Same color = same kind" (e.g. green = new, orange = modified) | Encoding one dimension, usually change status; always explain it in a legend |
+| **`color`** (body of a folder, group, or multi-snippet file) | Area tint | "This region is layer/subsystem X" | One tint per layer or subsystem, consistent across the canvas |
+| **`shape`** | Abstract step or thing without code | Flowchart meaning (decision, storage, actor, external service…) | The high-level flow, external systems, deleted files, things with no code to show |
+| **edge** | Relationship | "calls", "emits", "reads", "on error", "implemented by", "see also" | Every meaningful connection; the label is the verb |
+| **`media`** | Screenshot or recording | "What the user sees" / the visible result | UI results, before/after screenshots, architecture images |
+| **`locked`** | Reference material | "Don't edit this; it's the baseline" | Only when the user asks |
+
+### Relationships between elements
+
+Meaning comes from **how elements relate**, not only from each one alone. There are four kinds of relationship:
+
+1. **Containment** (`parent`): a box inside a group or folder *belongs to its scope*.
+   - A **note inside a group or folder** comments on that whole area ("Everything here runs in the worker process").
+     A note on the open canvas is either global (near the title) or attached to something nearby.
+   - A **file inside a folder** is a file of that directory (its path should start with the folder's path).
+   - An **editor inside a file** is one part of that file; several editors = several parts of the same file that
+     matter to the story (e.g. a function and the helper it calls).
+   - Nested groups/folders refine scope: `Server` → `Auth module`.
+2. **Edges**: explicit relationships. Direction is flow or dependency (source → target). Dash style and color carry
+   meaning (see 5.4). An edge from a note to a snippet, dotted and without an arrowhead, *attaches* the comment to
+   that code.
+3. **Shared tags / shared colors**: papers with the same tag or the same title bar color are in the same category,
+   wherever they sit on the canvas. This is how a canvas says "these 4 files are new in this PR" without moving
+   them out of their flow position.
+4. **Proximity and order**: nearby boxes are related, and flows read left → right or top → bottom. Numbered
+   annotations (`1 ·`, `2 ·`…) make the reading order explicit.
+
+Layout encodes the *structure* (flow, layers); tags and colors encode *categories* that cut across it; notes and
+annotations carry the *reasoning*; edges carry the *relationships*. A good canvas uses each channel for one purpose.
+
+---
+
+## 2. File format (version 2)
 
 ```jsonc
 {
   "version": 2,
-  "tags": [ /* optional: this workspace's tags, e.g. { "id": "tag_1", "label": "Entry point", "color": "#b2f2bb" } */ ],
+  "tags": [ /* optional: this workspace's tags, e.g. { "id": "t_new", "label": "New", "color": "#b6d7a8" } */ ],
+  "tagPlacement": "top",   // optional: right (default) | bottom | left | top
   "nodes": [ /* boxes and editors; array order = stacking order, parents before children */ ],
   "edges": [ /* arrows between any two nodes */ ]
 }
@@ -33,9 +98,9 @@ Both jobs need the file format, so it comes first.
 ### Coordinates
 
 - Units are canvas pixels. `x` grows to the right, `y` grows downward.
-- `position` is the node's **top-left corner**. It is **relative to its parent** (a `group` or `file`) when the node
-  has a `parent`, and absolute on the canvas otherwise. To get a node's absolute position, add up the positions of the
-  node and all its ancestors.
+- `position` is the node's **top-left corner**. It is **relative to its parent** (a `group`, `folder` or `file`) when
+  the node has a `parent`, and absolute on the canvas otherwise. To get a node's absolute position, add up the
+  positions of the node and all its ancestors.
 - `width` / `height` are the box size. Minimum 20, maximum 2000.
 
 ### Node kinds
@@ -45,42 +110,56 @@ Readers must skip kinds they don't recognize.
 
 | `type` | What it is | Own fields |
 |---|---|---|
-| `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?`, `title?`, `showTitle?`, `headerColor?`, `tags?`, `locked?` |
+| `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?`, `title?`, `showTitle?`, `headerColor?`, `color?`, `tags?`, `locked?` |
 | `editor` | A live code editor over the whole file, scrolled to a **target** line range. It always lives inside a `file`. | `parent` (**required**, the file node id), `target? {start,end}`, `anchor?`, `annotation?`, `title?`, `showTitle?`, `headerColor?`, `tags?`, `locked?` |
-| `group` | A titled, colored area. Any box (file, text, note, shape, media, group) can sit inside it. | `title`, `color?`, `textColor?`, `fontSize?`, `fontWeight?`, `titlePosition?`, `strokeColor?`, `strokeWidth?`, `strokeStyle?`, `annotation?`, `locked?` |
+| `folder` | A project directory: a container like a group, with a file-like title bar. | `folder` (path, `""` = project root), `annotation?`, `title?`, `showTitle?`, `headerColor?`, `color?`, `tags?`, `locked?` |
+| `group` | A titled, colored area for a concept. Any box can sit inside it. | `title`, `color?`, `textColor?`, `fontSize?`, `fontWeight?`, `titlePosition?`, `strokeColor?`, `strokeWidth?`, `strokeStyle?`, `annotation?`, `locked?` |
 | `shape` | A diagram shape with a label (see the shape list below). | `shape`, `text`, `color?`, `strokeColor?`, `textColor?`, `fontSize?`, `fontWeight?`, `annotation?` |
 | `note` | A sticky note, plain text on a colored square. | `text`, `color?` (background, default `#ffec99`), `textColor?`, `fontSize?` (default 14), `fontWeight?` |
 | `text` | Free text with no background (titles, headings, labels). | `text`, `color?` (text color), `fontSize?` (default 18), `fontWeight?` |
 | `media` | An image or video. | `src` (path, usually `.paperworkspace/media/<workspace>/<name>`), `annotation?` |
 
+Which boxes can contain which:
+
+- `group` and `folder` can contain any box (`file`, `folder`, `group`, `note`, `text`, `shape`, `media`).
+- `file` contains only `editor`s. **A note cannot sit inside a file**; put it next to the file (or inside the file's
+  folder/group) and attach it with an edge.
+
 Field details:
 
-- **`file` / `src` paths** are relative to the project root (the folder that contains `.paperworkspace/`), with `/`
-  separators, for example `src/auth/login.ts`. Absolute paths are allowed but won't work on other machines.
+- **`file` / `folder` / `src` paths** are relative to the project root (the folder that contains `.paperworkspace/`),
+  with `/` separators, for example `src/auth/login.ts` or `src/auth`. Absolute paths are allowed but won't work on
+  other machines.
 - **`target`** is a 1-based, inclusive line range, like the line numbers in the editor gutter. It marks the lines the
-  snippet is *about*: the editor opens scrolled there and highlights them. With no `target`, the editor shows the
-  whole file from the top.
+  snippet is *about*: the editor opens scrolled there and **highlights** them. This is how you highlight the
+  important piece of code. With no `target`, the editor shows the whole file from the top, with nothing highlighted.
 - **`anchor`** is the **trimmed text of line `target.start`**. If the file changes, the extension searches for this
   text to move the target to the right lines. Always set it when you set `target`.
 - **`annotation`** is a small italic caption drawn centered **below** the box. If it is missing there is no caption;
   `""` shows an empty caption. Text and note nodes don't have annotations.
-- **`title`** is the name label above a file or editor's top-left corner (it stays readable when zoomed out). If it is
-  missing, a file shows its base name (`login.ts`) and an editor the trimmed text of its first `target` line (the base
-  name without a target). **`showTitle`** turns the label on or off; it is on by default for both
-  kinds, so only write `"showTitle": false` to hide one.
-- **`headerColor`** (`#rrggbb`) colors a file or editor's title bar (the header with the path and buttons). Leave it
-  out for the theme's default.
-- **`tags`** on a file or editor is a list of ids from the top-level `tags` array; each is drawn as a colored chip beside the
-  paper (see `tagPlacement`). Tags belong to the workspace: define each once (`id`, `label`, `color`; labels are
-  unique ignoring case) and refer to it from any number of papers. Ids that are not defined are dropped. A file with a
-  single editor shows the file's tags (the editor's join them), like its annotation. The optional top-level
-  **`tagPlacement`** says where chips are drawn: `"right"` (default, beside the paper), `"bottom"`, `"left"`, or
-  `"top"` (on the title row, at the top-right corner). **`"showTags": false`** hides every chip without removing any
-  tag from its paper (omit it to show them).
+- **`title`** is the name label above a file, editor or folder's top-left corner (it stays readable when zoomed out).
+  If it is missing, a file shows its base name (`login.ts`), a folder its base name, and an editor the trimmed text
+  of its first `target` line (the base name without a target). **`showTitle`** turns the label on or off; it is on by
+  default, so only write `"showTitle": false` to hide one. Set a `title` when the base name alone is ambiguous or
+  when a short role reads better ("Login route").
+- **`headerColor`** (`#rrggbb`) colors the title bar of a file, editor or folder (the header with the path and
+  buttons). Leave it out for the theme's default. The header text switches to dark or light to stay readable. Use
+  the light palette (section 2, *Built-in palette*) so the path stays legible.
+- **`color`** on a `folder`, or on a `file` with **several** snippets, tints the body around its content. A
+  single-snippet file has no visible body, so its `color` has no effect.
+- **`tags`** on a file, editor or folder is a list of ids from the top-level `tags` array; each is drawn as a colored
+  chip beside the paper. Tags belong to the workspace: define each once (`id`, `label` up to 40 characters, `color`;
+  labels are unique ignoring case) and refer to it from any number of papers. Undefined ids are dropped. A tag
+  definition can exist without any paper using it. **A file with a single editor shows the file's tags** (the
+  editor's join them), like its annotation, so put tags on the `file` in that case. Groups, notes, shapes, text and
+  media cannot carry tags.
+- **`tagPlacement`** (top level) says where chips are drawn: `"right"` (default, beside the paper), `"bottom"`,
+  `"left"`, or `"top"` (on the title row, at the top-right corner). Use `"top"` when papers sit close together (for
+  example side by side in a folder), so chips don't fall into the gap between them. **`"showTags": false`** hides
+  every chip without removing any tag (omit it to show them).
 - **`locked`** (`true`, on a file, editor, folder or group) protects it from accidental changes on the canvas: it can't
-  be moved, resized, renamed, recolored, re-tagged or deleted, and its code is read-only. Everything inside it (a
-  file's editors, a folder's or group's content) is locked with it. A lock icon is drawn before its title. Leave it out
-  unless the user asks for a locked paper.
+  be moved, resized, renamed, recolored, re-tagged or deleted, and its code is read-only. Everything inside it is
+  locked with it. A lock icon is drawn before its title. Leave it out unless the user asks for a locked paper.
 - **`customColors`** (top level, optional) is the color picker's "Custom" row for this workspace: `#rrggbb` values,
   oldest first. It has no effect on how anything is drawn, so leave it out when writing a workspace.
 - **`text`** in shapes, notes, and text nodes is plain text. `\n` makes a new line, and there is no Markdown.
@@ -101,7 +180,7 @@ editor.width    = file.width
 editor.height   = file.height - 40
 ```
 
-In this layout the **file's** `annotation` is shown, not the editor's.
+In this layout the **file's** `annotation`, `tags`, `headerColor` and lock are shown, not the editor's.
 
 **Several snippets (group layout).** The file becomes a padded container, and each editor can be moved on its own.
 The editors are stacked vertically:
@@ -113,11 +192,21 @@ file.width  >=  max(editor.x + editor.width) + 12            (at least 640 + 24)
 file.height >=  max(editor.y + editor.height + annotation space) + 12
 ```
 
-Here each **editor's** `annotation` captions its snippet. Use this layout to show several parts of the same file, such
-as a function and the helper it calls. Don't create two `file` nodes for the same path.
+Here each **editor's** `annotation`, `tags` and `headerColor` apply to its snippet, and the file's apply to the whole
+paper. Use this layout to show several parts of the same file, such as a function and the helper it calls, or the
+several hunks a change touched. Don't create two `file` nodes for the same path.
 
 A good height for an editor that shows `n` target lines is `30 + (n + 2) * 19 + 8`, clamped to 150–560. The default
 editor width is 640. 520–720 works well for code.
+
+### Folders
+
+A folder node has a 40px title bar (like a file) and 16px of padding, so its first child sits at `{ x: 16, y: 56 }`.
+Papers placed side by side in a folder are 40px apart. The folder must be big enough to hold its children:
+`width >= child.x + child.width + 16` and `height >= child.y + child.height + 16`, plus 30 more if the child has an
+annotation. A file inside a folder should be a file of that directory (its path starts with `<folder>/`); when the
+user adds a file from the canvas, the extension puts it in the deepest folder that contains it. The same directory
+appears in at most one folder node.
 
 ### Groups
 
@@ -138,7 +227,7 @@ and `strokeStyle`: `solid` (default), `dashed`, `dotted` or `none`.
 ```jsonc
 {
   "id": "l1",
-  "source": "<node id>",            // any node: file, editor, shape, note, text, group, media
+  "source": "<node id>",            // any node: file, editor, folder, shape, note, text, group, media
   "target": "<node id>",
   "sourceSide": "right",            // top | right | bottom | left; if omitted, picked from the layout
   "targetSide": "left",
@@ -181,13 +270,57 @@ Shape defaults: white fill (`#ffffff`), dark grey outline (`#2b2f36`), 14px labe
 These are the swatches the UI offers. Use them so your workspaces match ones people make by hand.
 
 - Dark (lines, text, strong accents): `#2b2f36` `#3d4450` `#6b2f2f` `#6e4428` `#6b5a24` `#2d5236` `#27405f` `#46315f`
-- Light (fills, group backgrounds, notes): `#ffffff` `#e5e5e5` `#ffc9c9` `#ffd6a5` `#ffec99` `#b2f2bb` `#c5e3ff` `#e5dbff`
+- Light (fills, group backgrounds, notes, title bars): `#ffffff` `#e5e5e5` `#ffc9c9` `#ffd6a5` `#ffec99` `#b2f2bb`
+  `#c5e3ff` `#e5dbff`
+- New tags take these colors in turn (soft, readable with dark text): `#dd7e6b` `#ea9999` `#f9cb9c` `#ffe599`
+  `#b6d7a8` `#a2c4c9` `#a4c2f4` `#9fc5e8` `#b4a7d6` `#d5a6bd`
 
 The canvas background is light grey (`#e4e5e8`) by default.
 
 ---
 
-## 2. Reading and explaining a workspace
+## 3. References to a workspace or an item
+
+On the canvas, right-click any item → **Copy reference** (or the empty canvas → **Copy workspace reference**). The
+user then pastes it into the chat. The format is:
+
+```
+paperworkspace:<workspace path>                   the whole workspace
+paperworkspace:<workspace path>#<type>/<node id>  one item
+```
+
+- `<workspace path>` is the `.workspace` file relative to the project root, e.g. `.paperworkspace/How login works.workspace`
+  (it may contain spaces; it ends at the **last** `#`).
+- `<type>` is the node's `type` (`file`, `editor`, `folder`, `group`, `note`, `text`, `shape`, `media`).
+- `<node id>` is the node's `id` in that file.
+
+Example: `paperworkspace:.paperworkspace/How login works.workspace#editor/e_verify`.
+
+**When the user pastes one, resolve it before answering:**
+
+1. Open the workspace file and find the node whose `id` matches. If its `type` differs from the reference, trust the
+   `id` and mention the mismatch. If the id is gone, say so (it was deleted or the workspace was rewritten) and offer
+   the closest candidates by title/annotation.
+2. Gather what the item *is*, based on its type:
+   - `editor`: its parent `file` path and `target`; read those lines from the real file (re-find them by `anchor` if
+     they drifted). This is the code the user means.
+   - `file`: the path; if it has one editor, that editor's target is the part the user means; if several, all of
+     them.
+   - `folder`: the directory and the papers inside it.
+   - `group`: its title and everything inside it.
+   - `note` / `text` / `shape`: its text; plus what it is attached to (edges) and what contains it (`parent`).
+   - `media`: the file at `src` (look at it if you can read images).
+3. Gather its context: its `annotation`, `title`, tags (resolved to labels), `headerColor` meaning (from the legend),
+   container chain, and incoming/outgoing edges with labels.
+4. Then do what the user asked ("fix this", "explain this", "why is this here?") about **that** item, citing
+   `path:line`. Don't re-explain the whole workspace unless asked.
+
+When you write about items of a workspace (in chat, a PR description, or a note), you can give their references in
+this same format so the user can find them.
+
+---
+
+## 4. Reading and explaining a workspace
 
 Follow these steps when the user asks what a workspace shows, or asks you to explain one.
 
@@ -203,43 +336,47 @@ Follow these steps when the user asks what a workspace shows, or asks you to exp
 4. **Recover the intent.** Look for these clues, roughly in this order:
    - Big `text` nodes (large `fontSize` or bold) near the top-left usually hold the title and the question the
      workspace answers.
-   - `group` titles name the areas or layers (for example "Client", "API", "Database").
-   - `note`s are the author's explanations, warnings, and open questions.
-   - `annotation`s caption individual snippets and shapes. They often say *why* the snippet matters.
-   - Edge labels name the relationships (such as "calls", "emits", "reads", "on error").
-5. **Read the diagram notation.**
+   - `group` and `folder` titles name the areas: layers, phases, modules.
+   - `note`s are the author's explanations, warnings, decisions, and open questions. A note **inside** a group or
+     folder is about that area; a note linked by an edge is about the linked item.
+   - `annotation`s caption individual boxes. They often say *why* the thing matters and give the step number.
+   - Tags: list the workspace's tags and which papers carry each one. A tag used on several papers is a category the
+     author wanted to be scannable ("New", "Entry point", "Needs review").
+   - Edge labels name the relationships ("calls", "emits", "reads", "on error").
+5. **Decode the visual encoding.**
+   - Title bar colors (`headerColor`) and body colors (`color`): group papers by color and find what they share (all
+     the green ones are new files, all the amber ones were modified…). Prefer an explicit legend (a group titled
+     "Legend", or notes/shapes/tags that name the colors) over your own inference, and say when you are inferring.
    - Arrow direction is flow or dependency: from `source` to `target`, unless the markers say otherwise
      (`startMarker` arrows mean both ways).
-   - Dash style carries meaning. A common convention is **solid** for direct calls or control flow, **dashed** for
-     async work, events, or return values, and **dotted** for "related" or "see also". Say what the workspace itself
+   - Dash style: a common convention is **solid** for direct calls or control flow, **dashed** for async work, events,
+     or return values, and **dotted** for "related", "implemented by" or "see also". Say what the workspace itself
      seems to use rather than assuming.
-   - Line and fill colors usually encode categories. Infer the legend from how they are used, or from a legend node if
-     there is one.
    - Shapes follow flowchart meaning: `terminator` is start/end, `diamond` is a decision (its outgoing edge labels are
      the branches), `cylinder` is storage, `parallelogram` is data in or out, `actor` is a user or external system,
      `cloud` is an external service, and `predefined-process` is a call into another module.
    - Layout usually encodes order. Flows read left to right or top to bottom, and nearby things are related.
-6. **Walk the graph.** Find the entry points (nodes with no incoming edges, `terminator`s, or `actor`s) and follow the
-   edges. That order is the story the author is telling.
+6. **Walk the graph.** Find the entry points (an "Entry point" tag, nodes with no incoming edges, `terminator`s,
+   `actor`s, or annotation `1 ·`) and follow the edges and the step numbers. That order is the story.
 7. **Explain it** in this order:
-   - **Purpose**, in one or two sentences: what question the workspace answers.
-   - **Map**: the areas or groups and what each one holds.
+   - **Purpose**, in one or two sentences: what question the workspace answers, or what change it documents.
+   - **Map**: the areas (groups, folders) and what each one holds.
    - **Walkthrough**: the flow step by step, citing real code (`path:line`) and saying what each snippet does in that
-     step.
-   - **Notation**: what the colors, dashes, and shapes mean here, if it isn't obvious.
-   - **Gaps**: stale targets, files that no longer exist, dangling ideas in notes, or steps the diagram skips that you
-     can see in the code.
+     step, and what its tags/colors say about it.
+   - **Notation**: what the tags, colors, dashes, and shapes mean here, if it isn't obvious.
+   - **Gaps**: stale targets, files that no longer exist, tags defined but unused, colors without a legend, dangling
+     ideas in notes, or steps the diagram skips that you can see in the code.
 
 If the user asks a follow-up about one node, answer from the code at its target, not only from its label.
 
 ---
 
-## 3. Creating a workspace that explains a feature or workflow
+## 5. Creating a workspace
 
 The goal is a canvas someone can read in a couple of minutes without anyone explaining it. Treat it as a guided tour
-of the real code, not a dump of files.
+of the real code, not a dump of files. Every paper, note, tag and color should earn its place.
 
-### Step 1: Research the code first
+### 5.1 Research the code first
 
 - Find the **entry point** (route, command handler, UI event, CLI command, job, or message consumer) and trace the
   flow to its **outcomes** (response, stored data, emitted event, rendered UI).
@@ -247,59 +384,129 @@ of the real code, not a dump of files.
   line (for `anchor`). Read the lines themselves. Don't guess line numbers.
 - Note the branches (validation failure, cache hit or miss, error paths), async boundaries (queues, events,
   callbacks), and external systems (databases, third-party APIs).
+- Check for existing workspaces in `.paperworkspace/` and reuse their conventions (tag names, colors, layout).
 
-### Step 2: Plan the story before the layout
+### 5.2 Plan the story before the layout
 
 Write a short outline:
 
-- **Title**: the question being answered, for example "How a password reset works".
-- **Steps**: usually 4–10. For each one, the snippet, a one-line caption, and what connects it to the next step.
+- **Title**: the question being answered or the change being documented, for example "How a password reset works"
+  or "Feature: rate-limited login".
+- **Steps**: usually 4–10. For each one: the snippet (file + lines), a one-line caption, and what connects it to the
+  next step.
+- **Categories**: which dimensions the reader needs to scan for (change status, role, risk), and how each is encoded
+  (tags, title bar color). See 5.4.
+- **Reasoning**: the why, the decisions, the gotchas, the open questions. These become notes.
 - **Supporting context**: data models, config, key types. These go to the side, not in the main path.
-- **Legend**: only if you use more than one edge style or color category.
+- **Legend**: whenever colors or edge styles carry meaning.
 
-Keep it focused. Each snippet should earn its place. If a flow needs more than about 12 snippets, split it: show the
-high-level flow with shapes, and put the detail in a second workspace (use an `off-page` shape to point to it), or in
-a grouped region.
+Keep it focused. If a flow needs more than about 12 snippets, split it: show the high-level flow with shapes, and put
+the detail in a second workspace (use an `off-page` shape to point to it), or in a grouped region.
 
-### Step 3: Choose a layout pattern
+### 5.3 Choose a layout pattern
 
 | Pattern | Use it for | Arrangement |
 |---|---|---|
 | **Pipeline** | Linear request/processing flows | Snippets left → right in reading order, edges `right` → `left`. Wrap to a new row below after about 4 snippets. |
 | **Layered** | Flows that cross architectural layers | One `group` per layer (UI / API / domain / storage) stacked top → bottom or placed as columns. Edges cross between layers. |
+| **By folder** | A change or a module spread over directories | One `folder` per directory the work touched; papers inside in reading order; edges between folders. |
 | **Flowchart + code** | Logic with decisions | A column of shapes (`terminator` → `rectangle` → `diamond`…) on the left. Each shape links with a dotted edge to the snippet that implements it on the right. |
 | **Hub** | "What uses X?" and module overviews | The central snippet in the middle, related snippets around it, edges labeled with the relationship. |
 | **Sequence** | Interactions between services or actors | One column per participant (`actor`/`cloud`/group), time going down, labeled horizontal edges between columns. |
+| **Before / after** | Refactors, behavior changes | Two groups side by side ("Before", "After"), or old behavior as shapes/notes and new behavior as code. |
 
-### Step 4: Visual conventions
+### 5.4 Encode meaning deliberately
+
+Each visual channel should answer **one** question. Decide the mapping in the outline, apply it consistently, and
+explain it in a legend.
+
+**Tags: the words for categories.** Tags are the explicit, readable labels. Use them for facts the reader will want
+to scan for across the whole canvas. Keep the set small (2–6 tags) and the labels short (1–2 words). Useful sets:
+
+- *Change status*: `New`, `Modified` (deleted files become red notes, since the file is gone). The full
+  convention is in [`workflows/code-change-canvas.md`](workflows/code-change-canvas.md).
+- *Role*: `Entry point`, `Core logic`, `Config`, `Test`, `Types`, `UI`.
+- *Review*: `Needs review`, `Risk`, `TODO`, `Breaking change`.
+
+Rules: a paper can carry several tags (e.g. `New` + `Test`). Put tags on the `file` when it has one snippet and on
+the `editor` when a multi-snippet file has snippets of different kinds (one hunk new, one modified). Tag colors should
+echo the matching title bar color when both encode the same thing (a green `New` tag on a green title bar). Only
+files, editors and folders take tags; for a note or shape, write the category into its text or color.
+
+**Title bar colors (`headerColor`): the at-a-glance version of one category.** Pick **one** dimension for title bar
+colors, usually change status, and use the light palette. Defaults (a workflow file may override them):
+
+| Meaning | `headerColor` | Matching tag color |
+|---|---|---|
+| New | `#b2f2bb` (green) | `#b6d7a8` |
+| Modified | `#ffd6a5` (orange) | `#f9cb9c` |
+| Risky / breaking | `#ffc9c9` (pink) | `#ea9999` |
+| Tests (when status isn't the dimension) | `#e5dbff` (purple) | `#b4a7d6` |
+| Unchanged context | leave it out (theme default) | — |
+
+Leave context papers (code shown for understanding but not changed) with the default title bar, so the colored ones
+stand out.
+
+**Body colors (`color` on groups, folders, multi-snippet files): areas.** One light tint per layer or subsystem, e.g.
+blue `#c5e3ff` client, green `#b2f2bb` server, purple `#e5dbff` storage, grey `#e5e5e5` neutral/legend. Don't reuse
+a body color for a different meaning than a title bar color on the same canvas, or leave bodies neutral when title
+bars already carry color.
+
+**Targets: highlight the code that matters.** The target is the highlight. Point it at the exact lines of the step
+(the changed hunk, the function body, the decision), not the whole file. If two separate places in a file matter,
+give that file two editors, each with its own target and caption, rather than one big target.
+
+**Annotations: one-phrase role + step number.** Give every snippet (and key shapes) an annotation such as
+`2 · Checks the limiter before bcrypt`. For change documentation, lead with what changed: `Modified · now returns 429`.
+
+**Notes: the reasoning.** Sticky notes hold what a caption can't: why the code is built this way, decisions,
+trade-offs, gotchas, invariants, open questions, follow-ups. Keep each to 1–4 short lines, about 220–300 wide.
+Colors by intent:
+
+- Yellow `#ffec99` (default): explanation, "why".
+- Pink `#ffc9c9`: warning, known bug, risk, breaking change.
+- Blue `#c5e3ff`: good to know, background, link to other docs.
+- Green `#b2f2bb`: decision made / result / how to verify.
+- Red `#ea9999`: a deleted file (what it was, why it went, what replaced it).
+
+Place a note where its scope is: **inside a folder or group** when it is about that whole area, **next to a paper
+with a dotted, arrowless edge** when it is about one snippet, or **under the title** when it is about the whole
+canvas (a summary, "start here").
+
+**Edges: the verbs.**
+
+- Solid: direct call or control flow.
+- Dashed: async, event, callback, or return value.
+- Dotted, no arrowhead (`endMarker: "none"`): "implemented by", "see also", or a note attached to its subject.
+- Label edges with a verb ("calls", "emits `user.created`", "on 401", "yes" / "no", "tests"), and label every edge
+  that leaves a decision.
+- Color an edge only to encode something (e.g. dark red `#6b2f2f` for the error path) and put it in the legend.
+- Use `path: "rounded"` or `"step"` in tidy grid layouts, and `"curve"` for free-form layouts.
+- Set `sourceSide`/`targetSide` so the arrows follow the reading direction.
+
+**Legend.** Whenever colors or edge styles carry meaning, add a small `group` titled `Legend` (grey `#e5e5e5` or
+white body) near the title with one row per meaning: a small `shape` (`rectangle`, ~40 tall) filled with the color
+and labeled with its meaning, or a short `text`. Tags explain themselves through their labels, but if title bar
+colors mirror them, the legend should say so.
+
+**Media: show the result.** A screenshot of a UI (a page, a form step, a dialog) makes code about that UI concrete.
+Save it under `.paperworkspace/media/<Workspace Name>/`, add a `media` node about 480 wide, caption it, and link it
+to the paper that renders it with a dotted, arrowless edge labeled `renders`. Only use real captures.
+
+### 5.5 Visual conventions
 
 Use these unless the project already has its own style (check existing workspaces first and match them):
 
 - **Title**: a `text` node at the top-left, `fontSize` 32–40, `fontWeight` 700. Below it, an optional subtitle
   `text` (16–18, color `#3d4450`) that says what the canvas covers and where to start.
-- **Captions**: give every snippet an `annotation` that states its role in one short phrase, for example
-  "1 · Validates the token". Numbering the steps makes the reading order obvious.
-- **Notes** (`note`, default yellow `#ffec99`) are for explanations that don't fit a caption: why the code is built
-  this way, gotchas, invariants. Use pink `#ffc9c9` for warnings and known bugs, and blue `#c5e3ff` for "good to know".
-  Keep each note to 1–4 short lines, sized about 220–280 wide.
-- **Groups** tint areas with the light palette, one color per layer or subsystem (for example blue `#c5e3ff` for the
-  client, green `#b2f2bb` for the server, purple `#e5dbff` for storage). Use the same color for the same concept on
-  every workspace you create.
-- **Edges**:
-  - Solid: direct call or control flow.
-  - Dashed: async, event, callback, or return value.
-  - Dotted, no arrowhead (`endMarker: "none"`): "implemented by" or "see also", such as a flowchart shape linking to
-    its code.
-  - Label edges with a verb ("calls", "emits `user.created`", "on 401", "yes" / "no"), and label every edge that
-    leaves a decision.
-  - Use `path: "rounded"` or `"step"` in tidy grid layouts, and `"curve"` for free-form layouts.
-  - Set `sourceSide`/`targetSide` so the arrows follow the reading direction.
 - **Spacing**: leave about 80–120px between boxes in a row and 100–160px between rows, so labels and captions have
-  room. Captions take about 30px below a box. Don't overlap boxes unless one is inside a group.
-- **Size to the content**: size editors to their target (see the height formula in section 1), and use 520–720 for
-  the width. A snippet of 5–40 lines reads best. Point at a function body, not a whole file.
+  room. Captions take about 30px below a box. Don't overlap boxes unless one is inside a group or folder.
+- **Size to the content**: size editors to their target (see the height formula in section 2), and use 520–720 for
+  the width. A snippet of 5–40 lines reads best.
+- **Titles**: set a `title` on a paper when its role reads better than its file name ("Login route"), and leave it
+  out otherwise.
 
-### Step 5: Compute the layout
+### 5.6 Compute the layout
 
 Work out coordinates deliberately instead of guessing. For a row-based layout:
 
@@ -308,14 +515,15 @@ x_next = x_prev + width_prev + GAP_X          (GAP_X ≈ 100)
 row_y_next = row_y + max_height_in_row + caption(30) + GAP_Y   (GAP_Y ≈ 120)
 ```
 
-For children inside a group, start at `{16, 52}` and grow the group to fit them, plus 16px padding (and 30px for a
-caption on the last row).
+For children inside a group, start at `{16, 52}`; inside a folder, at `{16, 56}` with 40px between papers. Grow the
+container to fit them, plus 16px padding (and 30px for a caption on the last row).
 
-Use readable, unique ids so the edges are easy to check, such as `title`, `g_api`, `f_router`, `e_router_login`,
-`s_decide`, `n_why_retry`, `l_router_to_service`. For a file with one snippet, use a matching pair such as
-`f_x` / `e_x`.
+Use readable, unique ids so edges and references are easy to check, such as `title`, `g_api`, `d_auth` (folder),
+`f_router`, `e_router_login`, `s_decide`, `n_why_retry`, `l_router_to_service`, `t_new` (tag). For a file with one
+snippet, use a matching pair such as `f_x` / `e_x`. The user will copy references to these ids, so meaningful ids
+make pasted references readable.
 
-### Step 6: Write the file
+### 5.7 Write the file
 
 - Path: `.paperworkspace/<Human Readable Name>.workspace`. Create `.paperworkspace/` if it doesn't exist. Leave out
   these characters from the name: `< > : " / \ | ? *`. Don't overwrite an existing workspace unless the user asks.
@@ -323,32 +531,47 @@ Use readable, unique ids so the edges are easy to check, such as `title`, `g_api
 - Pretty-print with 2-space indentation. Leave out fields that are default or unset, so the file stays small and
   diffs stay readable. Round coordinates to integers.
 
-### Step 7: Validate before you finish
+### 5.8 Validate before you finish
 
 Check every item on this list:
 
 - [ ] The JSON parses. `version` is `2`. `nodes` and `edges` are arrays.
 - [ ] Every `id` is unique across nodes, and edge ids are unique across edges.
-- [ ] Every `parent` refers to an existing node. Editors' parents are `file` nodes, and every other box's parent is a
-      `group`. There are no cycles.
-- [ ] Every `file` path exists relative to the project root, and every file node has at least one editor.
+- [ ] Every `parent` refers to an existing node. Editors' parents are `file` nodes; every other box's parent is a
+      `group` or `folder`. There are no cycles. No note, shape or text has a `file` as parent.
+- [ ] Every `file` path exists relative to the project root, and every file node has at least one editor. Every
+      `folder` path is an existing directory, and files inside a folder are in that directory.
 - [ ] Every `target` is within the file's line count, and `anchor` equals the trimmed text of line `target.start`.
 - [ ] Single-editor files: the editor is at `{0, 40}`, width equals the file width, and height is the file height
       minus 40. Multi-editor files: the editors fit inside the file with the padding described above.
-- [ ] Children fit inside their groups, and top-level boxes don't overlap.
+- [ ] Children fit inside their groups and folders, and top-level boxes don't overlap.
+- [ ] Every tag used on a paper is defined in `tags`, tag labels are unique, and every defined tag is used (or
+      intentionally kept). Tags on single-editor files are on the `file`.
+- [ ] Every color or edge style that carries meaning is explained by a legend or by tags.
 - [ ] Every edge `source`/`target` refers to an existing node id. Edges pointing at missing ids are silently dropped.
-- [ ] Colors are `#rrggbb` (or `"none"` for a shape fill), and shape ids come from the list in section 1.
+- [ ] Colors are `#rrggbb` (or `"none"` for a shape fill), and shape ids come from the list in section 2.
 
 Then tell the user the file path and how to open it: click it in the Explorer, or open it from the **Paper
-Workspace** activity-bar panel. Give a two-line summary of the tour the canvas presents. If the workspace is already
-open, the canvas reloads from the saved file.
+Workspace** activity-bar panel. Give a two-line summary of the tour the canvas presents and the meaning of its tags
+and colors. If the workspace is already open, the canvas reloads from the saved file.
 
 ---
 
-## 4. Complete example
+## 6. Canvases of changed code
 
-This example shows a login flow: a decision flowchart on the left, the real code on the right, a service file with two
-snippets, and a note.
+When the user asks for a canvas of a change (the current branch, what you did in this session, a feature, fix or PR,
+or a code review), **read [`workflows/code-change-canvas.md`](workflows/code-change-canvas.md) and follow it**. It
+covers collecting the change set from git, tagging papers `New` / `Modified` with matching title bar colors,
+red notes for deleted files (why, and what replaced them), targeting the changed hunks, linking screenshots of changed
+views, and a complete example. Teams customize its conventions, so always read the project's copy instead of relying
+on memory.
+
+---
+
+## 7. Example: explaining a flow
+
+A login flow: a decision flowchart on the left, the real code on the right, a service file with two snippets, and a
+note.
 
 ```json
 {
@@ -410,16 +633,21 @@ Things to notice:
   + 16 = 336, and the file height is 336 + 198 + 30 + 12 = 576.
 - The group holds its shapes starting at `{16, 52}`, and all positions inside it are relative to the group.
 - The flowchart links to its code with dotted, arrowless edges, while the code-to-code edges use solid "calls" arrows.
+- The pink note is a warning attached to the exact snippet it is about.
 
 In a real workspace, every `target` and `anchor` must come from reading the actual file.
 
 ---
 
-## 5. Quick reference
+## 8. Quick reference
 
 - Location: `.paperworkspace/*.workspace` (JSON, version 2).
-- File header 40px. File padding 12. Gap between snippets 16. Caption space 30. Group header 36. Group padding 16.
-- Default sizes: editor 640×380, text 240×40, note 220×220, group 480×320, shape 160×80, media up to 480.
+- Workflow files: `workflows/*.md` (team-customizable recipes; e.g. `code-change-canvas.md` for canvases of changed code).
+- Reference: `paperworkspace:<workspace path>#<type>/<id>` (no `#…` = the whole workspace).
+- File header 40px. File padding 12. Gap between snippets 16. Caption space 30.
+- Group header 36, padding 16, first child `{16, 52}`. Folder header 40, padding 16, first child `{16, 56}`, 40 between papers.
+- Default sizes: editor 640×380, text 240×40, note 220×220, group 480×320, folder 720×480, shape 160×80, media up to 480.
 - Editor height for `n` target lines: `30 + (n+2)*19 + 8`, clamped to 150–560.
+- Tags: defined once at the top level; used by files, editors and folders only; single-editor files show the file's.
 - Edge defaults: `curve`, 2px, `solid`, no start marker, `arrow` end marker.
 - Array order is stacking order. Parents come before children.
