@@ -68,6 +68,8 @@
     ],
     edges: [],
   };
+  // ?empty opens a fresh canvas with no nodes.
+  if (new URLSearchParams(location.search).has('empty')) workspace.nodes = [];
   const settings = { fontFamily: "Consolas, 'Courier New', monospace", fontSize: 14, lineHeight: 19, tabSize: 2 };
   let config = { minNodeWidth: 50, minNodeHeight: 50, focusPercent: 80, canvasBackground: '#e4e5e8', showFileTitleByDefault: true, showEditorTitleByDefault: false };
   const log = [];

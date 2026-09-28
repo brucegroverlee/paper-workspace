@@ -1,6 +1,14 @@
 import * as monaco from './monacoCore';
+import { StandaloneServices } from 'monaco-editor/editor/standalone/browser/standaloneServices.js';
+import { IStandaloneThemeService } from 'monaco-editor/editor/standalone/common/standaloneTheme.js';
 
 export { monaco };
+
+// The `.codicon-*` glyph rules live in the theme service's stylesheet, which Monaco only attaches to the
+// page when the first editor registers its container. Attach it now so the toolbar and other UI codicons
+// render on a canvas that has no editors yet.
+StandaloneServices.initialize({});
+StandaloneServices.get(IStandaloneThemeService).registerEditorContainer(document.body);
 
 // Monaco's editor worker (links, word completions, diffing). Webviews can't construct a Worker from a
 // vscode-webview:// URL directly, so fetch the script and start it from a blob: URL instead.
