@@ -78,6 +78,10 @@ export type HostToWebview =
   | { type: 'languageResult'; id: number; result: LanguageResult }
   /** Answer to `relinkFile`: nodes showing `file` now show `newFile`. */
   | { type: 'fileRelinked'; file: string; newFile: string }
+  /** Whether a folder shown by folder nodes exists (sent for new folders, then whenever it is deleted or comes back). */
+  | { type: 'folderState'; folder: string; missing: boolean }
+  /** Answer to `relinkFolder`: nodes showing `folder` now show `newFolder`. */
+  | { type: 'folderRelinked'; folder: string; newFolder: string }
   /** VS Code's current problems for a file shown on the canvas. */
   | { type: 'diagnostics'; file: string; diagnostics: DiagnosticJson[] };
 
@@ -97,11 +101,15 @@ export type WebviewToHost =
   | { type: 'setConfig'; config: Partial<CanvasConfig> }
   /** A single paper was selected or clicked into; the host reveals its file in the Explorer. */
   | { type: 'nodeFocused'; file: string }
+  /** A folder paper's "Reveal in Explorer" button (workspace path; shown even with `revealInExplorer` off). */
+  | { type: 'revealInExplorer'; path: string }
   /** Pick image/video files from the computer; answered with `mediaAdded`. */
   | { type: 'pickMedia'; position: XY }
   /** Store pasted or dropped media (base64) under `.paperworkspace/media/<workspace>`; answered with `mediaAdded`. */
   | { type: 'saveMedia'; name: string; mime: string; data: string; position: XY }
   /** Let the user pick a replacement for a missing file; answered with `fileRelinked` (nothing if cancelled). */
   | { type: 'relinkFile'; file: string }
+  /** Let the user pick a folder to show instead of a missing one; answered with `folderRelinked` (nothing if cancelled). */
+  | { type: 'relinkFolder'; folder: string }
   /** IntelliSense for a paper, answered by VS Code's language providers with `languageResult`. */
   | { type: 'language'; id: number; file: string; request: LanguageRequest };

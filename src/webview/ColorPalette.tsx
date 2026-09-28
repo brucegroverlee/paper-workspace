@@ -152,21 +152,26 @@ export function ColorPickerButton(props: { value: string; onChange(color: string
   );
 }
 
-export function ColorPopup(props: { anchor: HTMLElement; onClose(): void; children: React.ReactNode }) {
-  const { anchor, onClose } = props;
+/**
+ * Opens below `anchor`, or above it when there is no room below. `below` always opens below, right against it (a title bar's palette):
+ * when the window is too short it moves up just enough to stay on screen rather than jump above the anchor.
+ */
+export function ColorPopup(props: { anchor: HTMLElement; onClose(): void; children: React.ReactNode; below?: boolean }) {
+  const { anchor, onClose, below: alwaysBelow } = props;
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 
   useLayoutEffect(() => {
     const r = ref.current!.getBoundingClientRect();
     const a = anchor.getBoundingClientRect();
-    const below = a.bottom + 6;
-    const top = below + r.height > window.innerHeight - 4 ? a.top - 6 - r.height : below;
+    // A title bar's palette sits right against the bar; other popups keep a little room from their button.
+    const below = a.bottom + (alwaysBelow ? 0 : 6);
+    const top = !alwaysBelow && below + r.height > window.innerHeight - 4 ? a.top - 6 - r.height : below;
     setPos({
       left: Math.max(4, Math.min(a.left, window.innerWidth - r.width - 4)),
       top: Math.max(4, Math.min(top, window.innerHeight - r.height - 4)),
     });
-  }, [anchor]);
+  }, [anchor, alwaysBelow]);
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => {

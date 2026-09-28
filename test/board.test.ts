@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GROUP_HEADER_HEIGHT, GROUP_PADDING, canvasBackgroundOf, groupHeaderHeight, clampFontSize, isLightColor, mediaSizeFor, parseWorkspace, serializeWorkspace } from '../src/shared/workspace';
 import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, reparent, type TreeNode } from '../src/webview/boardLayout';
+import { toneOver } from '../src/webview/tone';
 
 const ids = (ns: { id: string }[]) => ns.map((n) => n.id).join(',');
 
@@ -227,5 +228,35 @@ describe('copy & paste of board nodes', () => {
     // Pasting again gives new ids, and the originals are untouched.
     expect(ids(cloneTrees(copyTrees(ns, ['g'], noCode), { x: 0, y: 0 }, () => `d${i++}`))).toBe('d2,d3');
     expect(ns[0].position).toEqual({ x: 100, y: 100 });
+  });
+});
+
+describe('folders as containers', () => {
+  const folder: TreeNode = { id: 'd', type: 'folder', position: { x: 0, y: 0 }, width: 400, height: 300 };
+
+  it('take dropped boxes like groups', () => {
+    const f: TreeNode = { id: 'f', type: 'file', position: { x: 100, y: 100 }, width: 100, height: 100 };
+    expect(dropTargetFor([folder, f], 'f', new Set(['f']))).toBe('d');
+  });
+
+  it('grow to fit their content, below their title bar', () => {
+    const kid: TreeNode = { id: 'k', type: 'text', parentId: 'd', position: { x: 10, y: 5 }, width: 500, height: 50 };
+    const fitted = fitGroups([folder, kid]);
+    const d = fitted.find((n) => n.id === 'd')!;
+    const k = fitted.find((n) => n.id === 'k')!;
+    expect(k.position.y).toBeGreaterThanOrEqual(40);
+    expect(d.width).toBeGreaterThanOrEqual(k.position.x + 500);
+  });
+});
+
+describe('title bar text tone', () => {
+  it('picks the text color that contrasts most with what shows behind the bar', () => {
+    expect(toneOver({ color: '#ffffff', alpha: 1 }, '#000000')).toBe('on-light');
+    expect(toneOver({ color: '#1c4587', alpha: 1 }, '#e4e5e8')).toBe('on-dark');
+    // A dark color at 60% over a light canvas is a mid tone: dark text reads better there.
+    expect(toneOver({ color: '#1c4587', alpha: 0.6 }, '#e4e5e8')).toBe('on-light');
+    // Mostly transparent: the canvas decides.
+    expect(toneOver({ color: '#000000', alpha: 0.1 }, '#ffffff')).toBe('on-light');
+    expect(toneOver({ color: '#ffffff', alpha: 0.1 }, '#101010')).toBe('on-dark');
   });
 });

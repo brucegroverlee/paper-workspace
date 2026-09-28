@@ -9,6 +9,9 @@ Works in **VS Code**, **Cursor** and **Windsurf / Devin**.
 
 - **File nodes with snippets**: each file is a group holding one or more editors. Click ＋ on a file to add another
   snippet of it. Editors scroll vertically and horizontally like VS Code, and edits are written to the file.
+- **Folder nodes**: Shift+drag a folder from the Explorer (or Explorer → *Add to Paper Workspace*) to add a container
+  for it, with a file-like title bar and a body color picked from its menu. New files from that folder are added
+  inside it; files you drag in land where you drop them.
 - **Targets**: a snippet can have a target (the lines it is about). It opens scrolled there, highlights it, and a
   *Back to Lx–y* pill / ◎ button returns to it after you scroll away. Pin sets the target to your selection. Targets
   follow the code as it is edited.

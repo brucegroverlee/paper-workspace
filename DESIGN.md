@@ -117,6 +117,18 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
   group); dropping a node with its center over a group moves it in, dropping it outside moves it out, and the group
   grows to fit its content. It drags from anywhere, title bar or empty area (box selection starts on the canvas). Deleting a
   group deletes its content; *Ungroup* (toolbar, menu, Ctrl/Cmd+Shift+G) keeps it.
+* **Folder** (`{ "type": "folder", "folder": "src/pages", "color": "#c5e3ff", … }`): a project folder, shown as a
+  container like a group (boxes drop in and out of it, it grows to fit, deleting it deletes its content) with a file's
+  title bar, title label, tags, annotation and title bar color (same node menu as a file, no floating toolbar). `color` is
+  its body color, set from that menu ("Set body color", "Remove body color" to go back to the theme's). Shift+drag a folder from the Explorer (or *Add to Paper Workspace* on it)
+  to add one; a folder is on the canvas once, adding it again reveals it. `folder` is a workspace path like `file`
+  (`""` = the workspace folder). Adding a *new* file (selection command, Explorer menu, take over, Ctrl/Cmd+click) puts
+  its file node inside the deepest folder node containing it, beside the folder's content while it fits, otherwise
+  below it; files dropped from the Explorer land where they are dropped.
+  Like a file, a folder that is deleted or moved away is shown as missing: the canvas session tracks the folders of
+  the layout, checks them when they appear and re-checks them on file-system deletes and creates (`folderState`). The
+  header gets a warning badge, a struck-through path and a *Find the folder* button (a folder dialog, `relinkFolder` →
+  `folderRelinked`); an empty folder also shows the file's "not found" notice. It recovers if the folder comes back.
 * **Text** (no background, `color` = text color, height follows the content) and **note** (sticky note, `color` =
   background, `textColor` = text color, automatic contrast when unset). Both have an optional `fontSize` (any px value,
   typed or picked from the toolbar dropdown) and `fontWeight`. Double-click to edit; an emptied text is removed.
@@ -169,8 +181,13 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
   did not move (React Flow swallows the pane's contextmenu when right-drag pans; the canvas wrapper handles it).
 * **Title bar color**: files and editors can carry a `headerColor` (`#rrggbb`), the background of their header bar.
   "Set title bar color" in the node menu opens the shared color palette below the header; once set, the entry becomes
-  "Remove title bar color". Header text and buttons switch to dark or light to stay readable on it. A combined node
-  shows the file's color.
+  "Remove title bar color". A combined node shows the file's color. Header text and buttons switch to dark or light,
+  whichever contrasts more with what shows behind them, also without a color: a header without one shows its paper,
+  translucent over the canvas for folders and multi-snippet files (`src/webview/tone.ts` blends the theme's paper color,
+  or a body color, over the canvas background).
+* **Body color**: folders and files can carry a `color` (`#rrggbb`), the translucent area around their content, from
+  "Set body color" / "Remove body color" in the node menu (palette below the header). A file only shows it while it has
+  several snippets; a combined node has no body, so it does not offer the entry but keeps a color already set.
 * **Annotations**: files, groups, shapes and media can carry an `annotation`, a small italic caption centered below the
   box (like an image caption; under a stick figure it follows the label). It is off by default (no key in the file);
   the comment button in the file header or the node toolbar adds it (`""` until typed) or removes it with its text.

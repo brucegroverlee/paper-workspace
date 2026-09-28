@@ -251,7 +251,7 @@
       "explorer/context": [
         {
           "command": "paperWorkspace.addFile",
-          "when": "paperWorkspace.enabled && !explorerResourceIsFolder",
+          "when": "paperWorkspace.enabled",
           "group": "paperWorkspace@1"
         },
         {

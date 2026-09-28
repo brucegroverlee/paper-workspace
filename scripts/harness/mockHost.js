@@ -61,7 +61,8 @@
     version: 2,
     nodes: [
       { id: 'f1', type: 'file', file: ctxFile, position: { x: 0, y: 0 }, width: 664, height: 560 },
-      { id: 'f2', type: 'file', file: 'src/pages/business/services/ServicesController.tsx', position: { x: 760, y: 80 }, width: 584, height: 330 },
+      { id: 'd1', type: 'folder', folder: 'src/pages/business/services', color: '#c5e3ff', position: { x: 744, y: 0 }, width: 640, height: 420 },
+      { id: 'f2', type: 'file', parent: 'd1', file: 'src/pages/business/services/ServicesController.tsx', position: { x: 16, y: 56 }, width: 584, height: 330 },
       { id: 'e1', type: 'editor', parent: 'f1', target: { start: 7, end: 12 }, position: { x: 12, y: 40 }, width: 640, height: 220 },
       { id: 'e2', type: 'editor', parent: 'f1', target: { start: 19, end: 27 }, position: { x: 12, y: 276 }, width: 640, height: 272 },
       { id: 'e3', type: 'editor', parent: 'f2', position: { x: 12, y: 40 }, width: 560, height: 278 },
@@ -163,6 +164,9 @@
           files[newFile] = deleted[m.file] ?? files[m.file] ?? '';
           return send({ type: 'fileRelinked', file: m.file, newFile });
         }
+        // The real host shows a folder dialog; here the folder reappears under a new name.
+        case 'relinkFolder':
+          return send({ type: 'folderRelinked', folder: m.folder, newFolder: `${m.folder}-moved` });
         case 'save':
           for (const f of Object.keys(dirty)) {
             if (!dirty[f]) continue;
@@ -194,6 +198,12 @@
       files[file] = deleted[file];
       delete deleted[file];
       send({ type: 'doc', file, text: files[file], languageId: 'typescriptreact', eol: '\n' });
+    },
+    deleteFolder(folder) {
+      send({ type: 'folderState', folder, missing: true });
+    },
+    restoreFolder(folder) {
+      send({ type: 'folderState', folder, missing: false });
     },
     setWorkspace(p) {
       workspace = p;

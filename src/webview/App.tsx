@@ -20,6 +20,7 @@ import {
   DEFAULT_EDITOR_WIDTH,
   DEFAULT_EDITOR_SHOW_TITLE,
   DEFAULT_FILE_SHOW_TITLE,
+  DEFAULT_FOLDER_SHOW_TITLE,
   DEFAULT_GROUP_SIZE,
   DEFAULT_NOTE_SIZE,
   DEFAULT_TEXT_SIZE,
@@ -59,14 +60,17 @@ import { isAbsoluteWorkspacePath } from '../shared/paths';
 import { DEFAULT_CANVAS_CONFIG, type CanvasConfig, type EditorSettings, type HostToWebview } from '../shared/protocol';
 import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isWithin, reparent, sizeOf } from './boardLayout';
 import { GroupNode, MediaNode, ShapeNode, TextNode, editWhenMounted } from './BoardNodes';
-import { WorkspaceContext, type WorkspaceActions, type RFEdge, type RFEditorNode, type RFFileNode, type RFGroupNode, type RFNode, type RFShapeNode } from './context';
+import { WorkspaceContext, type WorkspaceActions, type RFEdge, type RFEditorNode, type RFFileNode, type RFFolderNode, type RFGroupNode, type RFNode, type RFShapeNode } from './context';
 import { facingSides, nearestSide, nodeHandles } from './handles';
 import { LinkEdge } from './Links';
 import { docStore } from './docStore';
 import { EditorNode, editorHasFocus, focusLastEditor, lastFocusedEditorId, requestScrollToTarget, selectedLines } from './EditorNode';
 import { FileNode } from './FileNode';
+import { FolderNode } from './FolderNode';
 import { MenuPopup, type HeaderMenuItem, type MenuEntries } from './HeaderMenu';
 import { watchHostTheme } from './monaco';
+import { resetThemeColors } from './tone';
+import { folderStore } from './folderStore';
 import { handleLanguageMessage, registerLanguageBridge } from './language';
 import { ConfigPanel, HelpOverlay, Toolbar, clearOfToolbar, ZOOM_LIMITS, type CreateKind, type Tool } from './Toolbar';
 import { ResizeBadge } from './ResizeBadge';
@@ -75,7 +79,7 @@ import { SHAPE_DRAG_TYPE, shapeDef } from './shapes';
 import { TagManagerDialog, TagPickerDialog, ZoomCssVar } from './Tags';
 import { host, onHostMessage } from './vscodeApi';
 
-const nodeTypes = { file: FileNode, editor: EditorNode, group: GroupNode, text: TextNode, note: TextNode, media: MediaNode, shape: ShapeNode };
+const nodeTypes = { file: FileNode, editor: EditorNode, folder: FolderNode, group: GroupNode, text: TextNode, note: TextNode, media: MediaNode, shape: ShapeNode };
 const edgeTypes = { link: LinkEdge };
 const COMMIT_DELAY = 250;
 
@@ -86,6 +90,9 @@ interface PersistedState {
 
 const isEditor = (n: RFNode): n is RFEditorNode => n.type === 'editor';
 const isFile = (n: RFNode): n is RFFileNode => n.type === 'file';
+const isFolder = (n: RFNode): n is RFFolderNode => n.type === 'folder';
+/** Papers with a title label, title bar color and tags. */
+const isTitled = (n: RFNode): n is RFFileNode | RFEditorNode | RFFolderNode => isFile(n) || isEditor(n) || isFolder(n);
 
 const isBox = (n: RFNode) => n.type !== 'editor';
 const isGroup = (n: RFNode): n is RFGroupNode => n.type === 'group';
@@ -120,8 +127,10 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
     };
     if (n.type === 'file') {
       fileById.set(n.id, n.file);
-      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags } });
-    } else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight, titlePosition: n.titlePosition, strokeColor: n.strokeColor, strokeWidth: n.strokeWidth, strokeStyle: n.strokeStyle, annotation: n.annotation } });
+      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags, color: n.color } });
+    } else if (n.type === 'folder')
+      out.push({ ...base, type: 'folder', data: { folder: n.folder, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags, color: n.color } });
+    else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight, titlePosition: n.titlePosition, strokeColor: n.strokeColor, strokeWidth: n.strokeWidth, strokeStyle: n.strokeStyle, annotation: n.annotation } });
     else if (n.type === 'media') out.push({ ...base, type: 'media', data: { src: n.src, annotation: n.annotation } });
     else if (n.type === 'shape')
       out.push({
@@ -321,7 +330,9 @@ function toWorkspace(nodes: RFNode[], edges: RFEdge[], { tags, tagPlacement, sho
       case 'editor':
         return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags };
       case 'file':
-        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags };
+        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags, color: n.data.color };
+      case 'folder':
+        return { ...rect, ...parent, type: 'folder', ...n.data };
       case 'group':
         return { ...rect, ...parent, type: 'group', ...n.data };
       case 'shape':
@@ -449,7 +460,7 @@ export function App() {
   const [paneMenu, setPaneMenu] = useState<{ x: number; y: number } | null>(null);
   /** Where the right button went down, to tell a right-click from a right-drag pan. */
   const rightDown = useRef<{ x: number; y: number } | null>(null);
-  const [, setThemeTick] = useState(0);
+  const [themeTick, setThemeTick] = useState(0);
   /** The workspace's tag definitions (papers hold their ids). */
   const [workspaceOptions, setWorkspaceOptionsState] = useState<WorkspaceOptions>({ tags: [], tagPlacement: DEFAULT_TAG_PLACEMENT, showTags: true, customColors: [] });
   const { tags, tagPlacement, showTags, customColors } = workspaceOptions;
@@ -548,6 +559,13 @@ export function App() {
             ns.map((n) => ((isFile(n) || isEditor(n)) && n.data.file === m.file ? ({ ...n, data: { ...n.data, file: m.newFile } } as RFNode) : n)),
           );
           break;
+        case 'folderState':
+          folderStore.set(m.folder, m.missing);
+          break;
+        case 'folderRelinked':
+          // The host checks the new folder once the layout it is saved in reaches it.
+          updateNodes((ns) => ns.map((n) => (isFolder(n) && n.data.folder === m.folder ? { ...n, data: { ...n.data, folder: m.newFolder } } : n)));
+          break;
         case 'restoreFocus':
           // Only give the caret back if it was in an editor; selecting a node alone must not focus code.
           if (refocusEditor.current) focusLastEditor();
@@ -593,7 +611,15 @@ export function App() {
     rf.fitView({ nodes: [{ id: shown }], padding: clearOfToolbar(0.3), maxZoom: Math.max(rf.getZoom(), 0.8), duration: 300 });
   }, [nodes, rf, setNodes]);
 
-  useEffect(() => watchHostTheme(() => setThemeTick((t) => t + 1)), []);
+  // Theme colors feed the title bar text tone (tone.ts); a new `actions` re-renders every paper with them.
+  useEffect(
+    () =>
+      watchHostTheme(() => {
+        resetThemeColors();
+        setThemeTick((t) => t + 1);
+      }),
+    [],
+  );
 
   // The canvas background is a user setting; dots and floating text switch tone so they stay readable on it.
   useEffect(() => {
@@ -740,6 +766,7 @@ export function App() {
     refocusEditor.current = editorHasFocus();
     const node = nodesRef.current.find((n) => n.id === id);
     if (node && (isFile(node) || isEditor(node))) host.postMessage({ type: 'nodeFocused', file: node.data.file });
+    else if (node && isFolder(node)) host.postMessage({ type: 'nodeFocused', file: node.data.folder });
   }, []);
 
   const actions = useMemo<WorkspaceActions | null>(() => {
@@ -817,8 +844,10 @@ export function App() {
           const next = ns.map((n) => (n === node ? ({ ...n, data: { ...n.data, annotation } } as RFNode) : n));
           return isEditor(node) && node.data.annotation === undefined && annotation !== undefined ? makeRoomBelow(next, node) : next;
         }),
+      setBodyColor: (id, color) =>
+        updateNodes((ns) => ns.map((n) => (n.id === id && (isFile(n) || isFolder(n)) ? ({ ...n, data: { ...n.data, color } } as RFNode) : n))),
       updateTitle: (id, patch) =>
-        updateNodes((ns) => ns.map((n) => (n.id === id && (isFile(n) || isEditor(n)) ? ({ ...n, data: { ...n.data, ...patch } } as RFNode) : n))),
+        updateNodes((ns) => ns.map((n) => (n.id === id && isTitled(n) ?({ ...n, data: { ...n.data, ...patch } } as RFNode) : n))),
       tags,
       tagPlacement,
       showTags,
@@ -832,7 +861,7 @@ export function App() {
       setNodeTags: (id, tagIds, created) => {
         if (created?.length) setTags([...optionsRef.current.tags, ...created]);
         const next = tagIds.length ? [...new Set(tagIds)] : undefined;
-        updateNodes((ns) => ns.map((n) => (n.id === id && (isFile(n) || isEditor(n)) ? ({ ...n, data: { ...n.data, tags: next } } as RFNode) : n)));
+        updateNodes((ns) => ns.map((n) => (n.id === id && isTitled(n) ? ({ ...n, data: { ...n.data, tags: next } } as RFNode) : n)));
       },
       openTagPicker: (id) => setTagDialog({ kind: 'picker', id }),
       updateLink: (id, patch) => {
@@ -881,9 +910,11 @@ export function App() {
       openInEditor: (file, line) => host.postMessage({ type: 'openInEditor', file, line }),
       goToDefinition: (file, line, column) => host.postMessage({ type: 'goToDefinition', file, line, column }),
       relinkFile: (file) => host.postMessage({ type: 'relinkFile', file }),
+      relinkFolder: (folder) => host.postMessage({ type: 'relinkFolder', folder }),
+      revealInExplorer: (path) => host.postMessage({ type: 'revealInExplorer', path }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings, config, tags, tagPlacement, showTags, customColors, rf, setNodes, setEdges, setTags, commit, updateNodes, revealInExplorer]);
+  }, [settings, config, tags, tagPlacement, showTags, customColors, themeTick, rf, setNodes, setEdges, setTags, commit, updateNodes, revealInExplorer]);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
 
@@ -1033,7 +1064,7 @@ export function App() {
     [updateNodes],
   );
 
-  // ---- copy & paste of board nodes (files and snippets are not copied: a file appears once per canvas) ----
+  // ---- copy & paste of board nodes (files, snippets and folders are not copied: each appears once per canvas) ----
 
   /**
    * Copied nodes (a `copyTrees` snapshot) and the links between them. `marker` is what we put on the system
@@ -1041,7 +1072,8 @@ export function App() {
    * was not writable).
    */
   const clip = useRef<{ nodes: RFNode[]; links: RFEdge[]; marker?: string; pastes: number; at?: { x: number; y: number } } | null>(null);
-  const copyable = (n: RFNode) => !isFile(n) && !isEditor(n);
+  // Folders neither: a copy would show the same folder (and its files) twice.
+  const copyable = (n: RFNode) => !isTitled(n);
 
   /** Snapshot of the selected board nodes (or of `id`), with what is inside them and their links; null if there are none. */
   const snapshotSelection = (id?: string) => {
@@ -1150,9 +1182,9 @@ export function App() {
    * own visibility (not a view filter), so single papers can be changed afterwards. Entries that change nothing are disabled.
    */
   const paneMenuItems = (): MenuEntries => {
-    const entry = (kind: 'file' | 'editor', show: boolean): HeaderMenuItem => {
-      const fallback = kind === 'file' ? DEFAULT_FILE_SHOW_TITLE : DEFAULT_EDITOR_SHOW_TITLE;
-      const changes = (n: RFNode): n is RFFileNode | RFEditorNode => (isFile(n) || isEditor(n)) && n.type === kind && (n.data.showTitle ?? fallback) !== show;
+    const entry = (kind: 'file' | 'editor' | 'folder', show: boolean): HeaderMenuItem => {
+      const fallback = kind === 'file' ? DEFAULT_FILE_SHOW_TITLE : kind === 'folder' ? DEFAULT_FOLDER_SHOW_TITLE : DEFAULT_EDITOR_SHOW_TITLE;
+      const changes = (n: RFNode): n is RFFileNode | RFEditorNode | RFFolderNode => isTitled(n) && n.type === kind && (n.data.showTitle ?? fallback) !== show;
       return {
         icon: show ? 'eye' : 'eye-closed',
         label: `${show ? 'Show' : 'Hide'} ${kind} titles`,
@@ -1165,13 +1197,25 @@ export function App() {
     const tagsEntry: HeaderMenuItem = {
       icon: showTags ? 'eye-closed' : 'eye',
       label: showTags ? 'Hide tags' : 'Show tags',
-      disabled: !nodesRef.current.some((n) => (isFile(n) || isEditor(n)) && n.data.tags?.length),
+      disabled: !nodesRef.current.some((n) => isTitled(n) && n.data.tags?.length),
       onClick: () => {
         setWorkspaceOptions({ showTags: !showTags });
         commit();
       },
     };
-    return [entry('file', true), entry('editor', true), 'separator', entry('file', false), entry('editor', false), 'separator', tagsEntry];
+    // Folder entries only once there are folders, so the menu stays short without them.
+    const folders = nodesRef.current.some(isFolder);
+    return [
+      entry('file', true),
+      entry('editor', true),
+      folders && entry('folder', true),
+      'separator',
+      entry('file', false),
+      entry('editor', false),
+      folders && entry('folder', false),
+      'separator',
+      tagsEntry,
+    ];
   };
 
   /** Send pasted or dropped image/video files to the host, which stores them and answers with `mediaAdded`. */
@@ -1312,7 +1356,7 @@ export function App() {
       setWorkspaceOptions({ tags: next, tagPlacement: placement });
       updateNodes((ns) =>
         ns.map((n) => {
-          if (!(isFile(n) || isEditor(n)) || !n.data.tags?.some((t) => !kept.has(t))) return n;
+          if (!isTitled(n) || !n.data.tags?.some((t) => !kept.has(t))) return n;
           const left = n.data.tags.filter((t) => kept.has(t));
           return { ...n, data: { ...n.data, tags: left.length ? left : undefined } } as RFNode;
         }),
@@ -1324,10 +1368,10 @@ export function App() {
   /** How many papers carry each tag. */
   const tagUsage = () => {
     const usage = new Map<string, number>();
-    for (const n of nodesRef.current) if (isFile(n) || isEditor(n)) for (const t of n.data.tags ?? []) usage.set(t, (usage.get(t) ?? 0) + 1);
+    for (const n of nodesRef.current) if (isTitled(n)) for (const t of n.data.tags ?? []) usage.set(t, (usage.get(t) ?? 0) + 1);
     return usage;
   };
-  const taggedNode = tagDialog?.kind === 'picker' ? nodes.find((n): n is RFFileNode | RFEditorNode => n.id === tagDialog.id && (isFile(n) || isEditor(n))) : undefined;
+  const taggedNode = tagDialog?.kind === 'picker' ? nodes.find((n): n is RFFileNode | RFEditorNode | RFFolderNode => n.id === tagDialog.id && isTitled(n)) : undefined;
 
   // ---- viewport ----------------------------------------------------------------------------------
 
@@ -1481,7 +1525,7 @@ export function App() {
             <div className="pw-empty-title">This workspace is empty</div>
             <div>
               Select code in an editor and press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd>, right-click a file in the
-              Explorer → <em>Add to Paper Workspace</em>, or hold <kbd>Shift</kbd> and drag files here.
+              Explorer → <em>Add to Paper Workspace</em>, or hold <kbd>Shift</kbd> and drag files or folders here.
             </div>
             <div>
               Add groups, text, notes, shapes and images from the toolbar, or paste an image with <kbd>Ctrl</kbd>+<kbd>V</kbd>.

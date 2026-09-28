@@ -1,6 +1,6 @@
 // Tree helpers for React Flow nodes nested in groups (positions of children are relative to their parent).
 // Pure functions over minimal node shapes so they can be unit tested without React Flow.
-import { GROUP_PADDING, groupHeaderHeight, type XY } from '../shared/workspace';
+import { FILE_HEADER_HEIGHT, GROUP_PADDING, groupHeaderHeight, isContainerType, type XY } from '../shared/workspace';
 
 export interface TreeNode {
   id: string;
@@ -16,8 +16,9 @@ export interface TreeNode {
   data?: object;
 }
 
-/** Room a group's title bar takes at its top and bottom edges. */
+/** Room a group's (or folder's) title bar takes at its top and bottom edges. */
 export function titleBarOf(n: TreeNode) {
+  if (n.type === 'folder') return { top: FILE_HEADER_HEIGHT, bottom: 0 };
   const d = (n.data ?? {}) as { fontSize?: number; titlePosition?: string };
   const h = groupHeaderHeight(d.fontSize);
   return d.titlePosition?.startsWith('bottom') ? { top: 0, bottom: h } : { top: h, bottom: 0 };
@@ -73,7 +74,7 @@ export function dropTargetFor(ns: TreeNode[], id: string, dragged: Set<string>):
   const c = { x: abs.x + size.width / 2, y: abs.y + size.height / 2 };
   let best: TreeNode | undefined;
   for (const g of ns) {
-    if (g.type !== 'group' || g.hidden || [...dragged].some((d) => isWithin(ns, g.id, d))) continue;
+    if (!isContainerType(g.type) || g.hidden || [...dragged].some((d) => isWithin(ns, g.id, d))) continue;
     const p = absolutePos(ns, g.id);
     const s = sizeOf(g);
     if (c.x < p.x || c.y < p.y || c.x > p.x + s.width || c.y > p.y + s.height) continue;
@@ -108,7 +109,7 @@ export function fitGroups<T extends TreeNode>(ns: T[]): T[] {
     }
     return d;
   };
-  const groups = ns.filter((n) => n.type === 'group').sort((a, b) => depth(b.id) - depth(a.id));
+  const groups = ns.filter((n) => isContainerType(n.type)).sort((a, b) => depth(b.id) - depth(a.id));
   let out = ns;
   for (const { id } of groups) {
     const g = out.find((n) => n.id === id)!;

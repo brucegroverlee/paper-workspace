@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { MEDIA_EXTS, WORKSPACE_DIR, isMediaPath, parseWorkspace, serializeWorkspace } from '../shared/workspace';
+import { MEDIA_EXTS, WORKSPACE_DIR, isFolderNode, isMediaPath, parseWorkspace, serializeWorkspace, type WorkspaceFile } from '../shared/workspace';
 import type { HostToWebview, TextChange, WebviewToHost } from '../shared/protocol';
 import type { LanguageRequest } from '../shared/language';
 import { WorkspaceStore, canvasConfig, editorSettings, exists, replaceDocument, updateCanvasConfig } from './workspaceStore';
@@ -67,6 +67,8 @@ class CanvasSession {
   private readonly files = new Map<string, string>();
   /** workspace `file` key -> URI of a file that no longer exists; reopened if it comes back (undo, git checkout...). */
   private readonly missing = new Map<string, vscode.Uri>();
+  /** Folder paths shown by folder nodes -> whether the folder is missing (undefined until first checked). */
+  private readonly folders = new Map<string, boolean | undefined>();
   /** Documents currently being edited from this webview; their change events must not echo back. */
   private readonly applying = new Map<string, number>();
   private readonly editQueues = new Map<string, Promise<void>>();
@@ -146,10 +148,12 @@ class CanvasSession {
           mediaRoot,
         } satisfies HostToWebview);
         this.queue.splice(0).forEach((q) => this.post(q));
+        this.syncFolders(workspace);
         break;
       }
       case 'update':
         await this.writeWorkspace(serializeWorkspace(m.workspace));
+        this.syncFolders(m.workspace);
         break;
       case 'openDoc':
         await this.openDoc(m.file);
@@ -185,7 +189,13 @@ class CanvasSession {
           const uri = vscode.Uri.parse(s);
           try {
             const stat = await vscode.workspace.fs.stat(uri);
-            if (stat.type & vscode.FileType.Directory) continue;
+            if (stat.type & vscode.FileType.Directory) {
+              // A folder is on the canvas once: dropping it again shows the one there.
+              const { id, created } = await this.store.addFolder(this.document.uri, uri, { x: m.position.x + offset, y: m.position.y + offset });
+              if (!created) this.post({ type: 'revealNode', id });
+              else offset += 48;
+              continue;
+            }
             if (isMediaPath(uri.path)) {
               media.push(await this.store.importMedia(this.document.uri, uri));
               continue;
@@ -244,8 +254,15 @@ class CanvasSession {
       case 'nodeFocused':
         this.scheduleExplorerReveal(m.file);
         break;
+      case 'revealInExplorer':
+        this.lastRevealed = undefined; // an explicit request always reveals
+        await this.revealInExplorer(m.path);
+        break;
       case 'relinkFile':
         await this.relinkFile(m.file);
+        break;
+      case 'relinkFolder':
+        await this.relinkFolder(m.folder);
         break;
     }
   }
@@ -368,12 +385,60 @@ class CanvasSession {
       const fileUri = vscode.Uri.parse(s);
       if (isSameOrInside(fileUri, uri)) this.markMissing(file, fileUri);
     }
+    for (const [folder, missing] of this.folders) {
+      if (!missing && isSameOrInside(this.store.resolveWorkspacePath(this.document.uri, folder), uri)) void this.checkFolder(folder);
+    }
   }
 
   private onFileCreated(uri: vscode.Uri) {
     for (const [file, missingUri] of [...this.missing]) {
       if (isSameOrInside(missingUri, uri)) void this.openDoc(file);
     }
+    for (const [folder, missing] of this.folders) {
+      if (missing && isSameOrInside(this.store.resolveWorkspacePath(this.document.uri, folder), uri)) void this.checkFolder(folder);
+    }
+  }
+
+  // ---- folder nodes --------------------------------------------------------------------------
+
+  /** Track the folders the layout shows: new ones are checked (and reported), removed ones forgotten. */
+  private syncFolders(workspace: WorkspaceFile) {
+    const shown = new Set(workspace.nodes.filter(isFolderNode).map((n) => n.folder));
+    for (const folder of [...this.folders.keys()]) if (!shown.has(folder)) this.folders.delete(folder);
+    for (const folder of shown) {
+      if (this.folders.has(folder)) continue;
+      this.folders.set(folder, undefined);
+      void this.checkFolder(folder);
+    }
+  }
+
+  /** Whether a folder exists; its nodes are told when that changes. */
+  private async checkFolder(folder: string) {
+    let missing = true;
+    try {
+      missing = !((await vscode.workspace.fs.stat(this.store.resolveWorkspacePath(this.document.uri, folder))).type & vscode.FileType.Directory);
+    } catch {
+      /* deleted or moved */
+    }
+    if (!this.folders.has(folder) || this.folders.get(folder) === missing) return;
+    this.folders.set(folder, missing);
+    this.post({ type: 'folderState', folder, missing });
+  }
+
+  /** Ask for the folder that replaces a missing one (e.g. where it was moved to) and point its nodes at it. */
+  private async relinkFolder(folder: string) {
+    const picked = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      title: `"${folder || 'The workspace folder'}" no longer exists`,
+      openLabel: 'Show on canvas',
+      defaultUri: this.store.rootFor(this.document.uri),
+    });
+    if (!picked?.[0]) return;
+    const newFolder = this.store.toFolderPath(this.document.uri, picked[0]);
+    if (newFolder === folder) await this.checkFolder(folder); // it is back where it was
+    else this.post({ type: 'folderRelinked', folder, newFolder });
   }
 
   /** Ask for the file that replaces a missing one (e.g. where it was moved to) and point its nodes at it. */
@@ -467,6 +532,7 @@ class CanvasSession {
       if (text === this.lastWritten) return;
       const { workspace, error } = parseWorkspace(text);
       this.post({ type: 'workspace', workspace, error });
+      this.syncFolders(workspace);
       return;
     }
     const keys = this.keysFor(e.document.uri);

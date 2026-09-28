@@ -160,6 +160,12 @@ body {
   font-family: var(--pw-font);
 }
 
+/* Body color of a file with several snippets, mixed like a folder's (a combined node never gets the class). */
+.pw-file.colored {
+  background: color-mix(in srgb, var(--pw-group-color) 60%, transparent);
+  border-color: color-mix(in srgb, var(--pw-group-color) 85%, var(--pw-fg) 15%);
+}
+
 .pw-file.selected {
   border-color: var(--pw-accent);
   box-shadow: 0 0 0 1px var(--pw-accent), 0 4px 16px var(--pw-shadow);
@@ -213,17 +219,22 @@ body {
   border-radius: 11px 11px 0 0;
 }
 
+/* Every title bar picks dark or light text for what shows behind it: its color, or its paper (see tone.ts). */
 .pw-file-header.on-light,
-.pw-editor-header.on-light {
+.pw-editor-header.on-light,
+.pw-folder-missing.on-light {
+  color: var(--pw-fg);
   --pw-fg: #1f2328;
-  --pw-muted: #57606a;
+  --pw-muted: color-mix(in srgb, var(--pw-fg) 75%, transparent); /* keeps its contrast on mid tones */
   --pw-hover: rgba(0, 0, 0, 0.1);
 }
 
 .pw-file-header.on-dark,
-.pw-editor-header.on-dark {
+.pw-editor-header.on-dark,
+.pw-folder-missing.on-dark {
+  color: var(--pw-fg);
   --pw-fg: #ffffff;
-  --pw-muted: rgba(255, 255, 255, 0.75);
+  --pw-muted: color-mix(in srgb, var(--pw-fg) 75%, transparent);
   --pw-hover: rgba(255, 255, 255, 0.18);
 }
 
@@ -408,11 +419,11 @@ body {
    at a paper does not raise it (a paper behind others must not jump over them; clicking selects and raises it),
    except while it shows a Monaco hover, which would otherwise be covered. Widgets are DOM children of their paper,
    so moving the mouse onto one keeps the paper hovered.
-   Containers (file nodes, groups) are excluded: raising one would lift its translucent body over its children.
+   Containers (file nodes, groups, folders) are excluded: raising one would lift its translucent body over its children.
    The value must exceed React Flow's selection elevation (1000 + stacking order + nesting depth); otherwise a
    hovered child of a selected container drops to its parent's level, gets covered, loses :hover and flickers. */
-.react-flow__node:not(.react-flow__node-file, .react-flow__node-group):focus-within,
-.react-flow__node:not(.react-flow__node-file, .react-flow__node-group):hover:has(.monaco-hover:not(.hidden)) {
+.react-flow__node:not(.react-flow__node-file, .react-flow__node-group, .react-flow__node-folder):focus-within,
+.react-flow__node:not(.react-flow__node-file, .react-flow__node-group, .react-flow__node-folder):hover:has(.monaco-hover:not(.hidden)) {
   z-index: 100000 !important;
 }
 
@@ -488,12 +499,14 @@ body {
 }
 
 /* A file that was deleted or moved: dashed warning border, struck-through path, and a panel instead of code. */
-.pw-file.missing:not(.selected) {
+.pw-file.missing:not(.selected),
+.pw-folder.missing:not(.selected) {
   border-style: dashed;
   border-color: var(--pw-dirty);
 }
 
-.pw-file.missing .pw-path {
+.pw-file.missing .pw-path,
+.pw-folder.missing .pw-path {
   text-decoration: line-through;
   opacity: 0.7;
 }
@@ -581,6 +594,59 @@ body {
   border-radius: 2px;
   background: var(--pw-accent);
   border: 1px solid var(--pw-canvas-bg);
+}
+
+/* ---- folders: a file's title bar over a group-like body ---------------------------------------------- */
+
+.pw-folder {
+  cursor: grab;
+  --pw-group-fill: color-mix(in srgb, var(--pw-paper-bg) 45%, transparent);
+  --pw-group-line: var(--pw-paper-border);
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--pw-group-fill);
+  border: 1px solid var(--pw-group-line);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px var(--pw-shadow);
+  font-family: var(--pw-font);
+  color: var(--pw-fg);
+}
+
+.pw-folder.colored {
+  --pw-group-fill: color-mix(in srgb, var(--pw-group-color) 60%, transparent);
+  --pw-group-line: color-mix(in srgb, var(--pw-group-color) 85%, var(--pw-fg) 15%);
+}
+
+.pw-folder.selected {
+  border-color: var(--pw-accent);
+  box-shadow: 0 0 0 1px var(--pw-accent), 0 4px 16px var(--pw-shadow);
+}
+
+.react-flow__node.pw-drop-target .pw-folder {
+  border-color: var(--pw-accent);
+  border-style: dashed;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pw-accent) 30%, transparent);
+}
+
+/* A missing folder's notice fills the body below the header. */
+.pw-folder-missing {
+  top: 40px;
+}
+
+/* Its text follows the body's tone (like the header), muted like a missing file's. */
+.pw-folder-missing.on-light,
+.pw-folder-missing.on-dark {
+  color: var(--pw-muted);
+}
+
+.pw-folder-icon {
+  flex: none;
+  color: var(--pw-muted);
+}
+
+.react-flow__node.dragging .pw-folder {
+  cursor: grabbing;
 }
 
 /* ---- groups --------------------------------------------------------------------------------------- */
@@ -2231,6 +2297,15 @@ kbd {
   flex-direction: column;
   gap: 4px;
   width: max-content;
+}
+
+/* The node toolbar's older palette shares the class and hangs above its toolbar; inside a popup it stays in the flow. */
+.pw-color-popup .pw-palette {
+  position: static;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
 }
 
 .pw-palette-grid {

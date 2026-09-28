@@ -5,7 +5,12 @@ import {
   EDITOR_GAP,
   FILE_HEADER_HEIGHT,
   FILE_PADDING,
+  DEFAULT_FOLDER_SIZE,
+  FOLDER_GAP,
+  GROUP_PADDING,
+  addFolder,
   addSnippet,
+  isInFolder,
   clampRange,
   editorHeightFor,
   editorsOf,
@@ -485,5 +490,89 @@ describe('restack', () => {
       }),
     ).workspace;
     expect(ids(parseWorkspace(serializeWorkspace(workspace)).workspace.nodes)).toBe('b,a,eb,ea');
+  });
+});
+
+describe('folder nodes', () => {
+  const base = { lineHeight: 20, origin: { x: 0, y: 0 } };
+  const withFolders = (): WorkspaceFile =>
+    parseWorkspace(
+      JSON.stringify({
+        nodes: [
+          { id: 'src', type: 'folder', folder: 'src', color: '#C5E3FF', tags: ['x'], position: { x: 0, y: 0 }, width: 800, height: 400 },
+          { id: 'pages', type: 'folder', folder: 'src/pages', title: 'Pages', showTitle: false, position: { x: 1000, y: 0 } },
+        ],
+      }),
+    ).workspace;
+
+  it('parses, fills defaults and round-trips', () => {
+    const ws = withFolders();
+    expect(ws.nodes.find((n) => n.id === 'src')).toMatchObject({ type: 'folder', folder: 'src', color: '#c5e3ff', tags: undefined, width: 800 });
+    expect(ws.nodes.find((n) => n.id === 'pages')).toMatchObject({ title: 'Pages', showTitle: false, ...DEFAULT_FOLDER_SIZE });
+    const once = serializeWorkspace(ws);
+    expect(serializeWorkspace(parseWorkspace(once).workspace)).toBe(once);
+  });
+
+  it('can hold other boxes', () => {
+    const { workspace } = parseWorkspace(
+      JSON.stringify({ nodes: [{ id: 'd', type: 'folder', folder: 'src' }, { id: 't', type: 'text', text: 'hi', parent: 'd' }] }),
+    );
+    expect(workspace.nodes.find((n) => n.id === 't')?.parent).toBe('d');
+  });
+
+  it('matches paths inside a folder', () => {
+    expect(isInFolder('src/a.ts', 'src')).toBe(true);
+    expect(isInFolder('srcx/a.ts', 'src')).toBe(false);
+    expect(isInFolder('src', 'src')).toBe(false);
+    expect(isInFolder('a.ts', '')).toBe(true);
+    expect(isInFolder('/abs/a.ts', '')).toBe(false);
+    expect(isInFolder('C:/Repo/src/a.ts', 'c:/repo/src')).toBe(true);
+  });
+
+  it('adds a new file into the deepest folder that contains it, side by side then below', () => {
+    const one = addSnippet(withFolders(), { ...base, file: 'src/pages/a.ts' });
+    const fa = one.workspace.nodes.find(isFileNode)!;
+    expect(fa).toMatchObject({ parent: 'pages', position: { x: GROUP_PADDING, y: FILE_HEADER_HEIGHT + GROUP_PADDING } });
+    const pages = one.workspace.nodes.find((n) => n.id === 'pages')!;
+    expect(pages.width).toBeGreaterThanOrEqual(fa.position.x + fa.width + GROUP_PADDING);
+
+    const two = addSnippet(withFolders(), { ...base, file: 'src/b.ts' });
+    expect(two.workspace.nodes.find(isFileNode)?.parent).toBe('src');
+    // A second file does not fit beside the first in the 800px folder: it goes below.
+    const three = addSnippet(two.workspace, { ...base, file: 'src/c.ts' });
+    const [fb, fc] = three.workspace.nodes.filter(isFileNode);
+    expect(fc).toMatchObject({ parent: 'src', position: { x: GROUP_PADDING, y: fb.position.y + fb.height + FOLDER_GAP } });
+  });
+
+  it('leaves files outside folders, and drops at their position', () => {
+    expect(addSnippet(withFolders(), { ...base, file: 'lib/a.ts' }).workspace.nodes.find(isFileNode)?.parent).toBeUndefined();
+    const dropped = addSnippet(withFolders(), { ...base, file: 'src/a.ts', position: { x: 5, y: 6 } });
+    expect(dropped.workspace.nodes.find(isFileNode)).toMatchObject({ position: { x: 5, y: 6 } });
+    expect(dropped.workspace.nodes.find(isFileNode)?.parent).toBeUndefined();
+  });
+
+  it('adds a folder once', () => {
+    const one = addFolder(emptyWorkspace(), { folder: 'src', origin: { x: 0, y: 0 }, position: { x: 10, y: 20 } });
+    expect(one).toMatchObject({ created: true });
+    expect(one.workspace.nodes[0]).toMatchObject({ type: 'folder', folder: 'src', position: { x: 10, y: 20 }, ...DEFAULT_FOLDER_SIZE });
+    const again = addFolder(one.workspace, { folder: 'src', origin: { x: 0, y: 0 } });
+    expect(again).toMatchObject({ created: false, folderId: one.folderId, workspace: one.workspace });
+  });
+});
+
+describe('file body color', () => {
+  it('parses (lowercased, invalid dropped) and round-trips', () => {
+    const text = JSON.stringify({
+      nodes: [
+        { id: 'f', type: 'file', file: 'a.ts', color: '#B6D7A8', position: { x: 0, y: 0 }, width: 300, height: 200 },
+        { id: 'g', type: 'file', file: 'b.ts', color: 'green', position: { x: 400, y: 0 }, width: 300, height: 200 },
+      ],
+    });
+    const { workspace } = parseWorkspace(text);
+    expect(workspace.nodes.find((n) => n.id === 'f')).toMatchObject({ color: '#b6d7a8' });
+    expect(workspace.nodes.find((n) => n.id === 'g')).toMatchObject({ color: undefined });
+    const once = serializeWorkspace(workspace);
+    expect(JSON.parse(once).nodes.find((n: any) => n.id === 'g')).not.toHaveProperty('color');
+    expect(serializeWorkspace(parseWorkspace(once).workspace)).toBe(once);
   });
 });

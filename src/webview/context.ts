@@ -9,7 +9,10 @@ import type { MenuEntries } from './HeaderMenu';
 export type TitleData = { title?: string; showTitle?: boolean; headerColor?: string };
 /** Ids of the workspace tags on a file or editor. */
 export type TagData = { tags?: string[] };
-export type FileNodeData = { file: string; annotation?: string } & TitleData & TagData;
+/** `color` = body color around the snippets (see FolderNodeData). */
+export type FileNodeData = { file: string; annotation?: string; color?: string } & TitleData & TagData;
+/** `color` = body color, edited from the node toolbar like a group's. */
+export type FolderNodeData = { folder: string; annotation?: string; color?: string } & TitleData & TagData;
 export type EditorNodeData = {
   /** Copied from the parent file node for convenience. */
   file: string;
@@ -47,11 +50,12 @@ export type ShapeNodeData = {
 
 export type RFFileNode = Node<FileNodeData, 'file'>;
 export type RFEditorNode = Node<EditorNodeData, 'editor'>;
+export type RFFolderNode = Node<FolderNodeData, 'folder'>;
 export type RFGroupNode = Node<GroupNodeData, 'group'>;
 export type RFTextNode = Node<TextNodeData, 'text' | 'note'>;
 export type RFMediaNode = Node<MediaNodeData, 'media'>;
 export type RFShapeNode = Node<ShapeNodeData, 'shape'>;
-export type RFNode = RFFileNode | RFEditorNode | RFGroupNode | RFTextNode | RFMediaNode | RFShapeNode;
+export type RFNode = RFFileNode | RFEditorNode | RFFolderNode | RFGroupNode | RFTextNode | RFMediaNode | RFShapeNode;
 /** Board node data that can be edited from its toolbar. */
 export type BoardDataPatch = Partial<GroupNodeData & TextNodeData & ShapeNodeData>;
 
@@ -72,7 +76,9 @@ export interface WorkspaceActions {
   updateData(id: string, patch: BoardDataPatch): void;
   /** Show (`''` or text) or remove (undefined) the caption below a file, snippet, group, shape or media node. */
   setAnnotation(id: string, annotation: string | undefined): void;
-  /** Rename (undefined = back to the base name) or show/hide a file or editor's title label, or color its title bar. */
+  /** Set (undefined = the theme's) the body color of a file or folder. */
+  setBodyColor(id: string, color: string | undefined): void;
+  /** Rename (undefined = back to the base name) or show/hide a file, editor or folder's title label, or color its title bar. */
   updateTitle(id: string, patch: TitleData): void;
   /** Every tag of this workspace. */
   tags: WorkspaceTag[];
@@ -84,7 +90,7 @@ export interface WorkspaceActions {
   customColors: string[];
   /** Remember a color picked with the custom picker or the eyedropper (no-op if it is in the grid or already saved). */
   addCustomColor(color: string): void;
-  /** Set the tags of a file or editor, first adding `created` (new tags made in the picker) to the workspace. */
+  /** Set the tags of a file, editor or folder, first adding `created` (new tags made in the picker) to the workspace. */
   setNodeTags(id: string, tagIds: string[], created?: WorkspaceTag[]): void;
   /** Open the dialog that picks or creates the tags of a file or editor. */
   openTagPicker(id: string): void;
@@ -110,6 +116,10 @@ export interface WorkspaceActions {
   goToDefinition(file: string, line: number, column: number): void;
   /** Pick a file to show instead of a missing one (deleted or moved). */
   relinkFile(file: string): void;
+  /** Pick a folder to show instead of a missing one (deleted or moved). */
+  relinkFolder(folder: string): void;
+  /** Select a file or folder in VS Code's Explorer. */
+  revealInExplorer(path: string): void;
 }
 
 export const WorkspaceContext = createContext<WorkspaceActions | null>(null);

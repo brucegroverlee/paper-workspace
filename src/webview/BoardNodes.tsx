@@ -48,7 +48,7 @@ export const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 // ---- group ----------------------------------------------------------------------------------------
 
 /** Smallest size that still contains every child, as "WxH" (a string keeps the selector stable). */
-function useChildrenExtent(id: string) {
+export function useChildrenExtent(id: string) {
   const extent = useStore((s) => {
     let w = 0;
     let h = 0;

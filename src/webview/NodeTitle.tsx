@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { useStore } from '@xyflow/react';
-import { isLightColor } from '../shared/workspace';
+import { toneOver } from './tone';
 import { ColorPalette, ColorPopup } from './ColorPalette';
 import { useWorkspace, type TagData, type TitleData } from './context';
 import type { HeaderMenuItem } from './HeaderMenu';
@@ -37,8 +37,10 @@ export function useTitleMenuItems(id: string, data: TitleData, defaultShown: boo
 /**
  * A file or editor's title bar color: the menu entry ("Set title bar color" opens the palette below the header,
  * "Remove title bar color" once one is set), the header's props (attach `ref` to it) and the palette popup to render.
+ * Without a color the header shows `surface` (a color, undefined = the theme's paper, at an opacity over the canvas);
+ * either way its text and icons turn dark or light to stay readable.
  */
-export function useHeaderColor(id: string, data: TitleData) {
+export function useHeaderColor(id: string, data: TitleData, surface: { color?: string; alpha: number } = { alpha: 1 }) {
   const ctx = useWorkspace();
   const ref = useRef<HTMLElement>(null);
   const [picking, setPicking] = useState(false);
@@ -49,11 +51,11 @@ export function useHeaderColor(id: string, data: TitleData) {
     : { icon: 'symbol-color', label: 'Set title bar color', onClick: () => setPicking(true) };
   const header = {
     ref,
-    className: color ? ` colored ${isLightColor(color) ? 'on-light' : 'on-dark'}` : '',
+    className: color ? ` colored ${toneOver({ color, alpha: 1 }, ctx.config.canvasBackground)}` : ` ${toneOver(surface, ctx.config.canvasBackground)}`,
     style: color ? { background: color } : undefined,
   };
   const picker = picking && ref.current && (
-    <ColorPopup anchor={ref.current} onClose={close}>
+    <ColorPopup anchor={ref.current} onClose={close} below>
       <ColorPalette
         value={color}
         label="Title bar color"
@@ -65,6 +67,35 @@ export function useHeaderColor(id: string, data: TitleData) {
     </ColorPopup>
   );
   return { item, header, picker };
+}
+
+/**
+ * A file or folder's body color: menu entries ("Set body color" opens the palette below `header`, "Remove body color"
+ * once one is set) and the palette popup to render. `offer` = false leaves out "Set body color" (a file with a single
+ * snippet has no body to show it on); a color already set can still be removed.
+ */
+export function useBodyColor(id: string, color: string | undefined, header: RefObject<HTMLElement | null>, offer = true) {
+  const ctx = useWorkspace();
+  const [picking, setPicking] = useState(false);
+  const close = useCallback(() => setPicking(false), []);
+  const items: HeaderMenuItem[] = [
+    // The body always has a color (the theme's until one is picked), so this entry is never shown as active.
+    ...(offer ? [{ icon: 'paintcan', label: 'Set body color', onClick: () => setPicking(true) }] : []),
+    ...(color ? [{ icon: 'discard', label: 'Remove body color', onClick: () => ctx.setBodyColor(id, undefined) }] : []),
+  ];
+  const picker = picking && header.current && (
+    <ColorPopup anchor={header.current} onClose={close} below>
+      <ColorPalette
+        value={color}
+        label="Body color"
+        onChange={(c, final) => {
+          ctx.setBodyColor(id, c);
+          if (final) close();
+        }}
+      />
+    </ColorPopup>
+  );
+  return { items, picker };
 }
 
 /**

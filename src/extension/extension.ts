@@ -186,7 +186,18 @@ export function activate(context: vscode.ExtensionContext) {
       if (!files.length) return;
       const target = await store.resolveTarget();
       if (!target) return;
-      for (const f of files) await addAndReveal(target, f, undefined);
+      for (const f of files) {
+        try {
+          if (!((await vscode.workspace.fs.stat(f)).type & vscode.FileType.Directory)) {
+            await addAndReveal(target, f, undefined);
+            continue;
+          }
+          const { id } = await store.addFolder(target, f);
+          await canvas.reveal(target, id);
+        } catch (e) {
+          void vscode.window.showErrorMessage(`Paper Workspace: ${(e as Error).message}`);
+        }
+      }
     }),
   );
 }

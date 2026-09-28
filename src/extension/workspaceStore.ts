@@ -1,11 +1,14 @@
 import * as vscode from 'vscode';
 import {
   DEFAULT_EDITOR_WIDTH,
+  DEFAULT_FOLDER_SIZE,
   LineRange,
+  WorkspaceFile,
   WORKSPACE_DIR,
   WORKSPACE_EXT,
   XY,
   absolutePosition,
+  addFolder,
   addSnippet,
   canvasBackgroundOf,
   clampFocusPercent,
@@ -131,6 +134,12 @@ export class WorkspaceStore implements vscode.Disposable {
       if (rel !== undefined) return rel;
     }
     return fileUri.scheme === 'file' ? fileUri.fsPath.replace(/\\/g, '/') : fileUri.toString();
+  }
+
+  /** Like toWorkspacePath for a folder; the workspace folder itself (which has no relative path) is `''`. */
+  toFolderPath(workspaceUri: vscode.Uri, folderUri: vscode.Uri): string {
+    const norm = (u: vscode.Uri) => `${u.scheme}:${u.path.replace(/\/+$/, '').toLowerCase()}`;
+    return norm(this.rootFor(workspaceUri)) === norm(folderUri) ? '' : this.toWorkspacePath(workspaceUri, folderUri);
   }
 
   /**
@@ -336,7 +345,8 @@ export class WorkspaceStore implements vscode.Disposable {
 
   /**
    * Add a snippet (editor node) for `fileUri` to a workspace: inside the file's existing file node when there is one,
-   * otherwise in a new file node. Returns the editor node id (new, or an existing one that already covers `target`).
+   * otherwise in a new file node (inside the folder node of its folder, if the canvas has one, unless `position` is
+   * given: drops land where they are dropped). Returns the editor node id (new, or an existing one that already covers `target`).
    * Edits the workspace's TextDocument so an open canvas updates and undo works.
    */
   async addSnippet(
@@ -375,10 +385,32 @@ export class WorkspaceStore implements vscode.Disposable {
       position,
     });
     if (!result.created) return result.editorId;
-    await replaceDocument(workspaceDoc, serializeWorkspace(result.workspace));
+    await this.write(workspaceDoc, result.workspace);
+    return result.editorId;
+  }
+
+  /**
+   * Add a folder node for `folderUri` (at `position`, or where the user is looking), or find the one already on the
+   * canvas. New files from that folder are then added inside it.
+   */
+  async addFolder(workspaceUri: vscode.Uri, folderUri: vscode.Uri, position?: XY): Promise<{ id: string; created: boolean }> {
+    const workspaceDoc = await vscode.workspace.openTextDocument(workspaceUri);
+    const { workspace } = parseWorkspace(workspaceDoc.getText());
+    const vp = this.viewports.get(workspaceUri.toString());
+    const result = addFolder(workspace, {
+      folder: this.toFolderPath(workspaceUri, folderUri),
+      origin: vp ? { x: vp.center.x - DEFAULT_FOLDER_SIZE.width / 2, y: vp.center.y - DEFAULT_FOLDER_SIZE.height / 2 } : { x: 0, y: 0 },
+      position,
+      showTitle: titleDefaults().file,
+    });
+    if (result.created) await this.write(workspaceDoc, result.workspace);
+    return { id: result.folderId, created: result.created };
+  }
+
+  private async write(workspaceDoc: vscode.TextDocument, workspace: WorkspaceFile) {
+    await replaceDocument(workspaceDoc, serializeWorkspace(workspace));
     // The canvas may not be open yet (it is revealed after this), so persist here rather than rely on it.
     if (vscode.workspace.getConfiguration('paperWorkspace').get<boolean>('autoSaveLayout', true)) await workspaceDoc.save();
-    return result.editorId;
   }
 }
 

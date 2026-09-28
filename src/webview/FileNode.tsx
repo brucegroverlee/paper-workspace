@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type CSSProperties } from 'react';
 import { NodeResizer, useStore, type NodeProps } from '@xyflow/react';
 import { ANNOTATION_SPACE, DEFAULT_FILE_SHOW_TITLE, FILE_PADDING, FILE_HEADER_HEIGHT } from '../shared/workspace';
 import { displayPath } from '../shared/paths';
@@ -8,7 +8,7 @@ import { HeaderMenu, type MenuEntries } from './HeaderMenu';
 import { languageBadge } from './monaco';
 import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
-import { NodeTitle, useHeaderColor, useTitleMenuItems } from './NodeTitle';
+import { NodeTitle, useBodyColor, useHeaderColor, useTitleMenuItems } from './NodeTitle';
 import { useTagMenuItem } from './Tags';
 
 /** Smallest size that still contains every visible child editor, as "WxH" (a string keeps the selector stable). */
@@ -48,7 +48,11 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
   const targetItems = useTargetMenuItems(single);
   const titleItems = useTitleMenuItems(id, data, DEFAULT_FILE_SHOW_TITLE);
   const tagItem = useTagMenuItem(id, data);
-  const headerColor = useHeaderColor(id, data);
+  // A group of snippets shows its translucent body behind the header (see .pw-file): the body color at 60% or the
+  // paper at 70%. A combined node has a solid header and no body, so its body color is kept but not shown.
+  const colored = !single && !!data.color;
+  const headerColor = useHeaderColor(id, data, single ? { alpha: 1 } : { color: data.color, alpha: colored ? 0.6 : 0.7 });
+  const bodyColor = useBodyColor(id, data.color, headerColor.header.ref, !single);
   const menuItems = (): MenuEntries => [
     ...(missing ? [] : targetItems),
     !missing && { icon: 'add', label: 'Add a snippet editor', onClick: () => ctx.addEditor(id) },
@@ -57,6 +61,7 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
     tagItem,
     ...titleItems,
     headerColor.item,
+    ...bodyColor.items,
   ];
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -67,7 +72,8 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
   return (
     <>
       <div
-        className={`pw-file${single ? ' single' : ''}${selected ? ' selected' : ''}${missing ? ' missing' : ''}`}
+        className={`pw-file${single ? ' single' : ''}${selected ? ' selected' : ''}${missing ? ' missing' : ''}${colored ? ' colored' : ''}`}
+        style={colored ? ({ '--pw-group-color': data.color } as CSSProperties) : undefined}
         // The empty body between snippet editors.
         onDoubleClick={(e) => e.target === e.currentTarget && ctx.focusNode(id)}
         onContextMenu={(e) => e.target === e.currentTarget && openMenu(e)}
@@ -107,6 +113,7 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
       </div>
       <NodeTitle id={id} data={data} fallback={path.slice(slash + 1)} width={width ?? 0} defaultShown={DEFAULT_FILE_SHOW_TITLE} />
       {headerColor.picker}
+      {bodyColor.picker}
       <Annotation id={id} value={data.annotation} />
     </>
   );

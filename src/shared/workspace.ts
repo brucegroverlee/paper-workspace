@@ -5,6 +5,8 @@
 // *editor nodes*: scrollable Monaco editors over the whole file, each with an optional *target*: the
 // line range that editor is "about". Editors open scrolled to their target and can jump back to it.
 
+import { isAbsoluteWorkspacePath } from './paths';
+
 export const WORKSPACE_VERSION = 2;
 export const WORKSPACE_DIR = '.paperworkspace';
 export const WORKSPACE_EXT = '.workspace';
@@ -37,6 +39,11 @@ export interface FileNode {
   headerColor?: string;
   /** Ids of the workspace tags on this paper, in the order they were added; undefined = none. */
   tags?: string[];
+  /**
+   * Body color (`#rrggbb`) around the snippets while the file has several, like a folder's; undefined = the theme's
+   * paper color. A combined (single-snippet) node has no body to show it on.
+   */
+  color?: string;
   position: XY;
   width: number;
   height: number;
@@ -73,7 +80,33 @@ export interface EditorNode {
   height: number;
 }
 
-/** A titled, colored area; any other box (file, text, note, shape, media, group) can sit inside it. */
+/**
+ * A folder of the project: a container like a group (any other box can sit inside it) with a file-like title bar,
+ * title label, tags and annotation. New files from that folder are added inside it (see `addSnippet`).
+ */
+export interface FolderNode {
+  id: string;
+  type: 'folder';
+  parent?: string;
+  /** Path of the folder, like FileNode's `file` (relative to the workspace folder; `''` = that folder itself). */
+  folder: string;
+  /** Caption shown centered below the box (see FileNode). */
+  annotation?: string;
+  /** Label above the box (see FileNode); undefined = the folder's base name. */
+  title?: string;
+  /** Whether the title label is shown; undefined = `DEFAULT_FOLDER_SHOW_TITLE`. */
+  showTitle?: boolean;
+  /** Background of the title bar (see FileNode). */
+  headerColor?: string;
+  tags?: string[];
+  /** Body color (`#rrggbb`), like a group's; undefined = the theme's paper color. */
+  color?: string;
+  position: XY;
+  width: number;
+  height: number;
+}
+
+/** A titled, colored area; any other box (file, folder, text, note, shape, media, group) can sit inside it. */
 export interface GroupNode {
   id: string;
   type: 'group';
@@ -165,7 +198,7 @@ export interface ShapeNode {
 }
 
 /** Nodes that live on the canvas or inside a group (everything except editors, which live in file nodes). */
-export type BoxNode = FileNode | GroupNode | TextNode | MediaNode | ShapeNode;
+export type BoxNode = FileNode | FolderNode | GroupNode | TextNode | MediaNode | ShapeNode;
 // Readers must ignore unknown kinds, so later kinds can be added without breaking older files.
 export type WorkspaceNode = BoxNode | EditorNode;
 
@@ -256,6 +289,10 @@ export const FOCUS_PERCENT_CEILING = 100;
 /** Title labels are on by default for files and snippet editors. */
 export const DEFAULT_FILE_SHOW_TITLE = true;
 export const DEFAULT_EDITOR_SHOW_TITLE = true;
+export const DEFAULT_FOLDER_SHOW_TITLE = true;
+export const DEFAULT_FOLDER_SIZE = { width: 720, height: 480 };
+/** Room between the papers placed side by side in a folder. */
+export const FOLDER_GAP = 40;
 export const GROUP_HEADER_HEIGHT = 36;
 export const DEFAULT_GROUP_FONT_SIZE = 14;
 export const DEFAULT_GROUP_FONT_WEIGHT = 600;
@@ -336,6 +373,9 @@ export function emptyWorkspace(): WorkspaceFile {
 export const isFileNode = (n: WorkspaceNode): n is FileNode => n.type === 'file';
 export const isEditorNode = (n: WorkspaceNode): n is EditorNode => n.type === 'editor';
 export const isGroupNode = (n: WorkspaceNode): n is GroupNode => n.type === 'group';
+export const isFolderNode = (n: WorkspaceNode): n is FolderNode => n.type === 'folder';
+/** Kinds of box other boxes can sit inside. */
+export const isContainerType = (type: string | undefined) => type === 'group' || type === 'folder';
 export const isBoxNode = (n: WorkspaceNode): n is BoxNode => n.type !== 'editor';
 
 function extOf(p: string) {
@@ -512,9 +552,22 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
       height: Math.max(NODE_SIZE_FLOOR, num(n.height, d.height)),
     });
     if (n.type === 'file' && typeof n.file === 'string') {
-      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, title, showTitle: showTitle(DEFAULT_FILE_SHOW_TITLE), headerColor: color(n.headerColor), tags: nodeTags(n.tags), width: num(n.width, 0), height: num(n.height, 0) };
+      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, title, showTitle: showTitle(DEFAULT_FILE_SHOW_TITLE), headerColor: color(n.headerColor), tags: nodeTags(n.tags), color: color(n.color), width: num(n.width, 0), height: num(n.height, 0) };
       files.push(f);
       boxes.push(f);
+    } else if (n.type === 'folder' && typeof n.folder === 'string') {
+      boxes.push({
+        ...box,
+        type: 'folder',
+        folder: n.folder,
+        annotation,
+        title,
+        showTitle: showTitle(DEFAULT_FOLDER_SHOW_TITLE),
+        headerColor: color(n.headerColor),
+        tags: nodeTags(n.tags),
+        color: color(n.color),
+        ...size(DEFAULT_FOLDER_SIZE),
+      });
     } else if (n.type === 'group') {
       const fontSize = Math.round(Number(n.fontSize));
       const fontWeight = Math.round(Number(n.fontWeight) / 100) * 100;
@@ -586,8 +639,8 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
       boxes.push(files[files.length - 1]);
     }
   }
-  // A box can only sit in an existing group, without cycles; otherwise it goes back to the canvas.
-  const groups = new Map(boxes.filter((b) => b.type === 'group').map((g) => [g.id, g]));
+  // A box can only sit in an existing group or folder, without cycles; otherwise it goes back to the canvas.
+  const groups = new Map(boxes.filter((b) => isContainerType(b.type)).map((g) => [g.id, g]));
   for (const b of boxes) {
     if (b.parent === undefined) continue;
     const seen = new Set([b.id]);
@@ -756,7 +809,9 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
     nodes: parentsFirst(workspace.nodes, (n) => n.parent).map((n) => {
       switch (n.type) {
         case 'file':
-          return { ...head(n), file: n.file, ...annotation(n), ...title(n, DEFAULT_FILE_SHOW_TITLE), ...tags(n), ...rect(n) };
+          return { ...head(n), file: n.file, ...annotation(n), ...title(n, DEFAULT_FILE_SHOW_TITLE), ...tags(n), ...(n.color ? { color: n.color } : {}), ...rect(n) };
+        case 'folder':
+          return { ...head(n), folder: n.folder, ...annotation(n), ...title(n, DEFAULT_FOLDER_SHOW_TITLE), ...tags(n), ...(n.color ? { color: n.color } : {}), ...rect(n) };
         case 'group':
           return {
             ...head(n),
@@ -994,6 +1049,68 @@ export function addSnippet(
     position: opts.position ?? findFreePosition(occupied, opts.origin, size),
     ...size,
   };
+  // Without an explicit position (a drop), a file from a folder on the canvas goes into that folder.
+  const folder = opts.position ? undefined : folderFor(workspace, opts.file);
+  if (folder) {
+    file.parent = folder.id;
+    file.position = nextFolderSlot(workspace, folder, size);
+    folder.width = Math.max(folder.width, file.position.x + size.width + GROUP_PADDING);
+    folder.height = Math.max(folder.height, file.position.y + size.height + GROUP_PADDING);
+  }
   workspace.nodes = parentsFirst([...workspace.nodes, file, editor], (n) => n.parent);
   return { workspace, editorId: editor.id, created: true };
+}
+
+/** Whether workspace path `p` (a file or folder) lies inside folder path `folder` (`''` = the workspace folder). */
+export function isInFolder(p: string, folder: string): boolean {
+  const dir = folder.replace(/\/+$/, '');
+  if (!dir) return !!p && !isAbsoluteWorkspacePath(p);
+  // Absolute Windows paths may differ in case.
+  const fold = /^[a-zA-Z]:/.test(dir) ? (s: string) => s.toLowerCase() : (s: string) => s;
+  return fold(p).startsWith(fold(dir) + '/');
+}
+
+/** The folder node a new paper for `file` belongs in: the deepest folder on the canvas containing it. */
+export function folderFor(workspace: WorkspaceFile, file: string): FolderNode | undefined {
+  let best: FolderNode | undefined;
+  for (const n of workspace.nodes) {
+    if (isFolderNode(n) && isInFolder(file, n.folder) && (!best || n.folder.length > best.folder.length)) best = n;
+  }
+  return best;
+}
+
+/** Where a new paper goes in a folder: right of its content while it fits the folder's width, otherwise below it. */
+export function nextFolderSlot(workspace: WorkspaceFile, folder: FolderNode, size: { width: number; height: number }): XY {
+  const kids = workspace.nodes.filter((n) => isBoxNode(n) && n.parent === folder.id);
+  const top = FILE_HEADER_HEIGHT + GROUP_PADDING;
+  if (!kids.length) return { x: GROUP_PADDING, y: top };
+  const right = Math.max(...kids.map((k) => k.position.x + k.width)) + FOLDER_GAP;
+  if (right + size.width + GROUP_PADDING <= folder.width) return { x: right, y: top };
+  return { x: GROUP_PADDING, y: Math.max(...kids.map((k) => k.position.y + k.height)) + FOLDER_GAP };
+}
+
+export interface AddFolderResult {
+  workspace: WorkspaceFile;
+  /** The folder node to reveal (new, or the one already showing that folder). */
+  folderId: string;
+  created: boolean;
+}
+
+/** Add a folder node (at `position`, or free space near `origin`), or find the one already showing `folder`. Pure. */
+export function addFolder(
+  input: WorkspaceFile,
+  opts: { folder: string; origin: XY; position?: XY; showTitle?: boolean; id?: () => string },
+): AddFolderResult {
+  const existing = input.nodes.find((n): n is FolderNode => isFolderNode(n) && n.folder === opts.folder);
+  if (existing) return { workspace: input, folderId: existing.id, created: false };
+  const occupied = input.nodes.filter((n) => isBoxNode(n) && n.parent === undefined);
+  const folder: FolderNode = {
+    id: (opts.id ?? newId)('d'),
+    type: 'folder',
+    folder: opts.folder,
+    showTitle: opts.showTitle,
+    position: opts.position ?? findFreePosition(occupied, opts.origin, DEFAULT_FOLDER_SIZE),
+    ...DEFAULT_FOLDER_SIZE,
+  };
+  return { workspace: { ...input, nodes: [...input.nodes, folder] }, folderId: folder.id, created: true };
 }
