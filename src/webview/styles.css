@@ -1247,7 +1247,7 @@ body {
 }
 
 
-/* ---- paper title bar "more actions" menu (looks like the floating node toolbar) ------------------------- */
+/* ---- paper menus: title bar "more actions" and right-click (look like the floating node toolbar) ---------- */
 
 .pw-header-menu {
   position: fixed;
@@ -1281,15 +1281,20 @@ body {
   cursor: pointer;
 }
 
-.pw-header-menu-item:hover {
+.pw-header-menu-item:hover:not(:disabled) {
   background: var(--pw-hover);
+}
+
+.pw-header-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .pw-header-menu-item.active {
   color: var(--pw-accent);
 }
 
-.pw-header-menu-item.danger:hover {
+.pw-header-menu-item.danger:hover:not(:disabled) {
   color: var(--vscode-errorForeground, #f14c4c);
 }
 
@@ -1297,54 +1302,6 @@ body {
   height: 1px;
   margin: 4px 2px;
   background: var(--pw-paper-border);
-}
-
-/* ---- node context menu (stacking order) -------------------------------------------------------- */
-
-.pw-menu {
-  position: fixed;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  min-width: 140px;
-  padding: 4px;
-  background: var(--vscode-menu-background, var(--pw-toolbar-bg));
-  color: var(--vscode-menu-foreground, var(--pw-fg));
-  border: 1px solid var(--vscode-menu-border, var(--pw-paper-border));
-  border-radius: 6px;
-  box-shadow: 0 2px 8px var(--pw-shadow);
-  font-family: var(--pw-font);
-  font-size: 12px;
-}
-
-.pw-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.pw-menu-item:hover:not(:disabled) {
-  background: var(--vscode-menu-selectionBackground, var(--pw-hover));
-  color: var(--vscode-menu-selectionForeground, inherit);
-}
-
-.pw-menu-separator {
-  height: 1px;
-  margin: 4px 0;
-  background: var(--vscode-menu-separatorBackground, var(--pw-paper-border));
-}
-
-.pw-menu-item:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* ---- overlays --------------------------------------------------------------------------------- */

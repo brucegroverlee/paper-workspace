@@ -3,6 +3,7 @@ import type { Edge, Node } from '@xyflow/react';
 import type { GroupBorderStyle, GroupTitlePosition, LineRange, WorkspaceEdge } from '../shared/workspace';
 import type { CanvasConfig, EditorSettings } from '../shared/protocol';
 import { docStore } from './docStore';
+import type { MenuEntries } from './HeaderMenu';
 
 export type FileNodeData = { file: string; annotation?: string };
 export type EditorNodeData = {
@@ -77,8 +78,10 @@ export interface WorkspaceActions {
   ungroup(id: string): void;
   /** Webview URL of a media `src` (workspace path). */
   mediaUrl(src: string): string;
-  /** Open the stacking-order menu for a node at a screen position (right-click on its header). */
-  openNodeMenu(id: string, x: number, y: number): void;
+  /** Open a node's menu at a screen position (right-click); `items` are the node's own entries, before nodeMenuItems. */
+  openNodeMenu(id: string, x: number, y: number, items?: MenuEntries): void;
+  /** Entries every node menu ends with: focus, stacking order, duplicate, ungroup, delete. */
+  nodeMenuItems(id: string): MenuEntries;
   /** Zoom the viewport so the node fills 80% of the window. */
   focusNode(id: string): void;
   openInEditor(file: string, line: number): void;

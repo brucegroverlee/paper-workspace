@@ -90,6 +90,12 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: NodePro
         style={style}
         // Double-click on the empty body (not the title or a child) focuses the group.
         onDoubleClick={(e) => e.target === e.currentTarget && ctx.focusNode(id)}
+        onContextMenu={(e) => {
+          if (e.target !== e.currentTarget) return;
+          e.preventDefault();
+          e.stopPropagation();
+          ctx.openNodeMenu(id, e.clientX, e.clientY);
+        }}
       >
         <NodeResizer
           isVisible={selected}

@@ -4,7 +4,7 @@ import { ANNOTATION_SPACE, FILE_PADDING, FILE_HEADER_HEIGHT } from '../shared/wo
 import { displayPath } from '../shared/paths';
 import { useDoc, useWorkspace, type RFEditorNode, type RFFileNode } from './context';
 import { EditorBody, TargetControls, useTargetMenuItems } from './EditorNode';
-import { HeaderMenu } from './HeaderMenu';
+import { HeaderMenu, type MenuEntries } from './HeaderMenu';
 import { languageBadge } from './monaco';
 import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
@@ -44,6 +44,17 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
   const toggleAnnotation = useToggleAnnotation(id, data.annotation);
   const missing = !!doc?.missing;
   const targetItems = useTargetMenuItems(single);
+  const menuItems = (): MenuEntries => [
+    ...(missing ? [] : targetItems),
+    !missing && { icon: 'add', label: 'Add a snippet editor', onClick: () => ctx.addEditor(id) },
+    'separator',
+    { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+  ];
+  const openMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    ctx.openNodeMenu(id, e.clientX, e.clientY, menuItems());
+  };
 
   return (
     <>
@@ -51,17 +62,14 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
         className={`pw-file${single ? ' single' : ''}${selected ? ' selected' : ''}${missing ? ' missing' : ''}`}
         // The empty body between snippet editors.
         onDoubleClick={(e) => e.target === e.currentTarget && ctx.focusNode(id)}
+        onContextMenu={(e) => e.target === e.currentTarget && openMenu(e)}
       >
         <NodeResizer isVisible={selected} minWidth={minWidth} minHeight={minHeight} lineClassName="pw-resize-line" handleClassName="pw-resize-handle" />
         <NodeHandles />
         <header
           className="pw-file-header"
           onDoubleClick={(e) => !(e.target as HTMLElement).closest('button') && ctx.focusNode(id)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            ctx.openNodeMenu(id, e.clientX, e.clientY);
-          }}
+          onContextMenu={openMenu}
         >
           <span className={`pw-badge lang-${doc?.languageId ?? 'unknown'}`}>{languageBadge(doc?.languageId, data.file)}</span>
           {missing && <span className="codicon codicon-warning pw-missing-badge" title="File not found: it was deleted or moved" />}
@@ -80,20 +88,12 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
               <span className="codicon codicon-go-to-file" />
             </button>
           )}
-          <HeaderMenu
-            items={[
-              ...(missing ? [] : targetItems),
-              !missing && { icon: 'add', label: 'Add a snippet editor', onClick: () => ctx.addEditor(id) },
-              'separator',
-              { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
-              { icon: 'screen-full', label: 'Focus on this paper', onClick: () => ctx.focusNode(id) },
-            ]}
-          />
+          <HeaderMenu items={() => [...menuItems(), 'separator', ...ctx.nodeMenuItems(id)]} />
           <button className="pw-icon nodrag" title="Remove file from canvas" onClick={() => ctx.remove(id)}>
             <span className="codicon codicon-close" />
           </button>
         </header>
-        {single && <EditorBody id={single.id} data={single.data} fileNodeId={id} />}
+        {single && <EditorBody id={single.id} data={single.data} fileNodeId={id} onContextMenu={openMenu} />}
       </div>
       <Annotation id={id} value={data.annotation} />
     </>

@@ -61,6 +61,7 @@ import { LinkEdge } from './Links';
 import { docStore } from './docStore';
 import { EditorNode, editorHasFocus, focusLastEditor, lastFocusedEditorId, requestScrollToTarget, selectedLines } from './EditorNode';
 import { FileNode } from './FileNode';
+import { MenuPopup, type MenuEntries } from './HeaderMenu';
 import { watchHostTheme } from './monaco';
 import { handleLanguageMessage, registerLanguageBridge } from './language';
 import { ConfigPanel, HelpOverlay, Toolbar, ZOOM_LIMITS, type CreateKind, type Tool } from './Toolbar';
@@ -426,7 +427,7 @@ export function App() {
   const togglePanel = useCallback((p: 'config' | 'shapes') => setPanel((o) => (o === p ? null : p)), []);
   /** Config edits not yet sent to the host (see changeConfig). */
   const pendingConfig = useRef<{ patch: Partial<CanvasConfig>; timer: number } | null>(null);
-  const [nodeMenu, setNodeMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [nodeMenu, setNodeMenu] = useState<{ id: string; at: { x: number; y: number }; items?: MenuEntries } | null>(null);
   const [, setThemeTick] = useState(0);
 
   const [edges, setEdges, onEdgesChangeBase] = useEdgesState<RFEdge>([]);
@@ -815,7 +816,8 @@ export function App() {
         if (isAbsoluteWorkspacePath(src) || !mediaRootRef.current) return '';
         return `${mediaRootRef.current.replace(/\/$/, '')}/${src.split('/').map(encodeURIComponent).join('/')}`;
       },
-      openNodeMenu: (id, x, y) => setNodeMenu({ id, x, y }),
+      openNodeMenu: (id, x, y, items) => setNodeMenu({ id, at: { x, y }, items }),
+      nodeMenuItems: (id) => nodeMenuItemsRef.current(id),
       // fitView's numeric padding shrinks the fitted size to 1 / (1 + padding), so 100 / percent - 1 fills `percent`.
       focusNode: (id) =>
         rf.fitView({ nodes: [{ id: visibleNodeId(nodesRef.current, id) }], padding: 100 / config.focusPercent - 1, duration: 300 }),
@@ -1061,6 +1063,29 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [insertCopies],
   );
+
+  /** See WorkspaceActions.nodeMenuItems; read at open time so the stacking entries match the canvas. */
+  const nodeMenuItems = (id: string): MenuEntries => {
+    const ns = nodesRef.current;
+    const node = ns.find((n) => n.id === id);
+    const { isFront, isBack } = stackPosition(ns, stackGroup, id);
+    return [
+      { icon: 'screen-full', label: 'Focus on this paper', onClick: () => actionsRef.current?.focusNode(id) },
+      'separator',
+      ...MENU_ITEMS.map(({ op, label, icon }) => ({
+        icon,
+        label,
+        disabled: op === 'front' || op === 'forward' ? isFront : isBack,
+        onClick: () => restackNode(id, op),
+      })),
+      'separator',
+      node && copyable(node) && { icon: 'copy', label: 'Duplicate', onClick: () => duplicateSelection(id) },
+      node && isGroup(node) && { icon: 'ungroup-by-ref-type', label: 'Ungroup', onClick: () => actionsRef.current?.ungroup(id) },
+      { icon: 'trash', label: 'Delete', danger: true, onClick: () => actionsRef.current?.remove(id) },
+    ];
+  };
+  const nodeMenuItemsRef = useRef(nodeMenuItems);
+  nodeMenuItemsRef.current = nodeMenuItems;
 
   /** Send pasted or dropped image/video files to the host, which stores them and answers with `mediaAdded`. */
   const saveMediaFiles = useCallback(async (files: File[], position: { x: number; y: number }) => {
@@ -1336,37 +1361,7 @@ export function App() {
           </div>
         )}
         {nodeMenu && (
-          <NodeMenu
-            x={nodeMenu.x}
-            y={nodeMenu.y}
-            {...stackPosition(nodes, stackGroup, nodeMenu.id)}
-            onPick={(op) => restackNode(nodeMenu.id, op)}
-            onFocus={() => {
-              closeNodeMenu();
-              actions?.focusNode(nodeMenu.id);
-            }}
-            onDuplicate={
-              nodes.some((n) => n.id === nodeMenu.id && copyable(n))
-                ? () => {
-                    closeNodeMenu();
-                    duplicateSelection(nodeMenu.id);
-                  }
-                : undefined
-            }
-            onUngroup={
-              nodes.some((n) => n.id === nodeMenu.id && isGroup(n))
-                ? () => {
-                    closeNodeMenu();
-                    actions.ungroup(nodeMenu.id);
-                  }
-                : undefined
-            }
-            onRemove={() => {
-              closeNodeMenu();
-              actions.remove(nodeMenu.id);
-            }}
-            onClose={closeNodeMenu}
-          />
+          <MenuPopup anchor={nodeMenu.at} items={[...(nodeMenu.items ?? []), 'separator', ...nodeMenuItems(nodeMenu.id)]} onClose={closeNodeMenu} />
         )}
         {help && <HelpOverlay onClose={() => setHelp(false)} />}
       </div>
@@ -1380,88 +1375,3 @@ const MENU_ITEMS: { op: StackOp; label: string; icon: string }[] = [
   { op: 'forward', label: 'In front', icon: 'arrow-up' },
   { op: 'backward', label: 'Back', icon: 'arrow-down' },
 ];
-
-/** Node menu (focus, stacking order), opened by right-clicking its header. */
-function NodeMenu(props: {
-  x: number;
-  y: number;
-  isFront: boolean;
-  isBack: boolean;
-  onPick(op: StackOp): void;
-  onFocus(): void;
-  onDuplicate?(): void;
-  onUngroup?(): void;
-  onRemove(): void;
-  onClose(): void;
-}) {
-  const { x, y, onClose } = props;
-  const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ left: x, top: y });
-
-  // Keep the menu inside the window.
-  useLayoutEffect(() => {
-    const r = ref.current!.getBoundingClientRect();
-    setPos({
-      left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
-      top: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)),
-    });
-  }, [x, y]);
-
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onClose();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('mousedown', onDown, true);
-    window.addEventListener('wheel', onClose, true);
-    window.addEventListener('blur', onClose);
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      window.removeEventListener('mousedown', onDown, true);
-      window.removeEventListener('wheel', onClose, true);
-      window.removeEventListener('blur', onClose);
-      window.removeEventListener('keydown', onKey, true);
-    };
-  }, [onClose]);
-
-  return (
-    <div ref={ref} className="pw-menu" role="menu" style={pos} onContextMenu={(e) => e.preventDefault()}>
-      <button className="pw-menu-item" role="menuitem" onClick={props.onFocus}>
-        <span className="codicon codicon-screen-full" />
-        Focus on paper
-      </button>
-      <div className="pw-menu-separator" role="separator" />
-      {MENU_ITEMS.map(({ op, label, icon }) => (
-        <button
-          key={op}
-          className="pw-menu-item"
-          role="menuitem"
-          disabled={op === 'front' || op === 'forward' ? props.isFront : props.isBack}
-          onClick={() => props.onPick(op)}
-        >
-          <span className={`codicon codicon-${icon}`} />
-          {label}
-        </button>
-      ))}
-      <div className="pw-menu-separator" role="separator" />
-      {props.onDuplicate && (
-        <button className="pw-menu-item" role="menuitem" onClick={props.onDuplicate}>
-          <span className="codicon codicon-copy" />
-          Duplicate
-        </button>
-      )}
-      {props.onUngroup && (
-        <button className="pw-menu-item" role="menuitem" onClick={props.onUngroup}>
-          <span className="codicon codicon-ungroup-by-ref-type" />
-          Ungroup
-        </button>
-      )}
-      <button className="pw-menu-item" role="menuitem" onClick={props.onRemove}>
-        <span className="codicon codicon-trash" />
-        Delete
-      </button>
-    </div>
-  );
-}

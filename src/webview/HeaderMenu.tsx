@@ -1,11 +1,13 @@
-// "More actions" button for paper title bars: the less used actions live in a popup styled like the node toolbar.
+// Paper menus: the "more actions" button in title bars and the right-click menu share these entries and this popup,
+// styled like the node toolbar.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-export type HeaderMenuItem = { icon: string; label: string; onClick(): void; active?: boolean; danger?: boolean } | 'separator';
+export type HeaderMenuItem = { icon: string; label: string; onClick(): void; active?: boolean; danger?: boolean; disabled?: boolean } | 'separator';
+export type MenuEntries = (HeaderMenuItem | false | null | undefined)[];
 
 /** Drop falsy entries and leading, trailing or doubled separators, so callers can build the list with `cond && item`. */
-function tidy(items: (HeaderMenuItem | false | null | undefined)[]) {
+function tidy(items: MenuEntries) {
   const out: HeaderMenuItem[] = [];
   for (const item of items) {
     if (!item) continue;
@@ -16,7 +18,8 @@ function tidy(items: (HeaderMenuItem | false | null | undefined)[]) {
   return out;
 }
 
-export function HeaderMenu(props: { items: (HeaderMenuItem | false | null | undefined)[] }) {
+/** `items` is called while the menu is open, so entries that depend on the canvas (stacking order) are current. */
+export function HeaderMenu(props: { items(): MenuEntries }) {
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -34,35 +37,44 @@ export function HeaderMenu(props: { items: (HeaderMenuItem | false | null | unde
       >
         <span className="codicon codicon-kebab-vertical" />
       </button>
-      {open && <Popup anchor={button.current!} items={tidy(props.items)} onClose={close} />}
+      {open && <MenuPopup anchor={button.current!} items={props.items()} onClose={close} />}
     </>
   );
 }
 
 /**
  * Rendered in the document body: nodes live inside the canvas transform (and headers clip their overflow), so the menu
- * would otherwise scale with the zoom and be cut off. Closes on a pick, Escape, a click elsewhere or wheel.
+ * would otherwise scale with the zoom and be cut off. Opens below a button (`anchor`) or at a point (right-click).
+ * Closes on a pick, Escape, a click elsewhere or wheel.
  * Not on window blur: the click that opens it can also select the paper, and the host's Explorer reveal for that
  * selection briefly takes focus from the webview, which would close the menu right after it opened.
  */
-function Popup(props: { anchor: HTMLElement; items: HeaderMenuItem[]; onClose(): void }) {
+export function MenuPopup(props: { anchor: HTMLElement | { x: number; y: number }; items: MenuEntries; onClose(): void }) {
   const { anchor, onClose } = props;
+  const items = tidy(props.items);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const x = anchor instanceof HTMLElement ? undefined : anchor.x;
+  const y = anchor instanceof HTMLElement ? undefined : anchor.y;
 
-  // Below the button, right-aligned with it; above it when there is no room below. Kept inside the window.
+  // A button's menu goes below it, right-aligned, or above it when there is no room below; a point's menu starts
+  // there. Kept inside the window.
   useLayoutEffect(() => {
-    const a = anchor.getBoundingClientRect();
     const r = ref.current!.getBoundingClientRect();
+    const fit = (left: number, top: number) => ({
+      left: Math.max(4, Math.min(left, window.innerWidth - r.width - 4)),
+      top: Math.max(4, Math.min(top, window.innerHeight - r.height - 4)),
+    });
+    if (x !== undefined && y !== undefined) return setPos(fit(x, y));
+    const a = (anchor as HTMLElement).getBoundingClientRect();
     const below = a.bottom + 6;
-    const top = below + r.height > window.innerHeight - 4 ? Math.max(4, a.top - 6 - r.height) : below;
-    setPos({ left: Math.max(4, Math.min(a.right - r.width, window.innerWidth - r.width - 4)), top });
-  }, [anchor]);
+    setPos(fit(a.right - r.width, below + r.height > window.innerHeight - 4 ? a.top - 6 - r.height : below));
+  }, [anchor, x, y]);
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
-      if (!ref.current?.contains(t) && !anchor.contains(t)) onClose();
+      if (!ref.current?.contains(t) && !(anchor instanceof HTMLElement && anchor.contains(t))) onClose();
     };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('pointerdown', onDown, true);
@@ -83,7 +95,7 @@ function Popup(props: { anchor: HTMLElement; items: HeaderMenuItem[]; onClose():
       style={pos ?? { left: 0, top: 0, visibility: 'hidden' }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {props.items.map((item, i) =>
+      {items.map((item, i) =>
         item === 'separator' ? (
           <div key={i} className="pw-header-menu-sep" role="separator" />
         ) : (
@@ -91,6 +103,7 @@ function Popup(props: { anchor: HTMLElement; items: HeaderMenuItem[]; onClose():
             key={i}
             role="menuitem"
             className={`pw-header-menu-item${item.active ? ' active' : ''}${item.danger ? ' danger' : ''}`}
+            disabled={item.disabled}
             onClick={() => {
               onClose();
               item.onClick();

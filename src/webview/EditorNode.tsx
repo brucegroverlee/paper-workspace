@@ -8,7 +8,7 @@ import { monaco } from './monaco';
 import { ZOOM_LIMITS } from './Toolbar';
 import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
-import { HeaderMenu, type HeaderMenuItem } from './HeaderMenu';
+import { HeaderMenu, type HeaderMenuItem, type MenuEntries } from './HeaderMenu';
 
 /** Below this canvas zoom, editors render as a static preview instead of a live Monaco instance. */
 const LIVE_EDITOR_MIN_ZOOM = 0.35;
@@ -84,6 +84,16 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
   const missing = !!useDoc(data.file)?.missing;
   const toggleAnnotation = useToggleAnnotation(id, data.annotation);
   const targetItems = useTargetMenuItems({ id, data });
+  const menuItems = (): MenuEntries => [
+    ...(missing ? [] : targetItems),
+    'separator',
+    { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+  ];
+  const openMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    ctx.openNodeMenu(id, e.clientX, e.clientY, menuItems());
+  };
   return (
     <>
       <div className={`pw-editor${selected ? ' selected' : ''}`}>
@@ -92,11 +102,7 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
         <header
           className="pw-editor-header"
           onDoubleClick={(e) => !(e.target as HTMLElement).closest('button') && ctx.focusNode(id)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            ctx.openNodeMenu(id, e.clientX, e.clientY);
-          }}
+          onContextMenu={openMenu}
         >
           <span className="codicon codicon-symbol-snippet pw-editor-icon" />
           {missing ? <span className="pw-spacer" /> : <TargetControls id={id} data={data} />}
@@ -105,19 +111,12 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
               <span className="codicon codicon-go-to-file" />
             </button>
           )}
-          <HeaderMenu
-            items={[
-              ...(missing ? [] : targetItems),
-              'separator',
-              { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
-              { icon: 'screen-full', label: 'Focus on this paper', onClick: () => ctx.focusNode(id) },
-            ]}
-          />
+          <HeaderMenu items={() => [...menuItems(), 'separator', ...ctx.nodeMenuItems(id)]} />
           <button className="pw-icon nodrag" title="Remove this snippet" onClick={() => ctx.remove(id)}>
             <span className="codicon codicon-close" />
           </button>
         </header>
-        <EditorBody id={id} data={data} fileNodeId={parentId!} />
+        <EditorBody id={id} data={data} fileNodeId={parentId!} onContextMenu={openMenu} />
       </div>
       <Annotation id={id} value={data.annotation} />
     </>
@@ -163,8 +162,12 @@ export function useTargetMenuItems(editor: { id: string; data: EditorNodeData } 
   ];
 }
 
-/** The code area of an editor: a live Monaco editor, or a static preview when zoomed far out. */
-export function EditorBody({ id, data, fileNodeId }: { id: string; data: EditorNodeData; fileNodeId: string }) {
+/**
+ * The code area of an editor: a live Monaco editor, or a static preview when zoomed far out. Right-click opens the
+ * paper's menu (`onContextMenu`) everywhere but over Monaco, which keeps its own.
+ */
+export function EditorBody(props: { id: string; data: EditorNodeData; fileNodeId: string; onContextMenu(e: React.MouseEvent): void }) {
+  const { id, data, fileNodeId } = props;
   const ctx = useWorkspace();
   const doc = useDoc(data.file);
   const zoom = useStore(zoomSelector);
@@ -201,6 +204,7 @@ export function EditorBody({ id, data, fileNodeId }: { id: string; data: EditorN
       className={`pw-editor-body ${live ? 'nodrag nopan nowheel' : 'preview'}`}
       // focusNode maps the hidden editor of a combined file node to the file node.
       onDoubleClick={live ? undefined : () => ctx.focusNode(id)}
+      onContextMenu={(e) => !(e.target as HTMLElement).closest('.monaco-editor') && props.onContextMenu(e)}
     >
       {doc?.missing ? (
         <MissingFile file={data.file} fileNodeId={fileNodeId} />
