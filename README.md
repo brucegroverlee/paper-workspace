@@ -25,6 +25,8 @@ Works in **VS Code**, **Cursor** and **Windsurf / Devin**.
   - **Manual** — add code with **Ctrl+Alt+P** (Cmd+Alt+P) on a selection, Explorer → *Add to Paper Workspace*, or
     Shift+drag files onto the canvas.
   - **Take over** — opening a file adds it to the target workspace instead of a normal tab.
+- **Snapshots**: the camera button in the toolbar saves the current view, or the whole workspace, as a PNG image; a
+  save dialog lets you pick its name and folder, so the work is easy to share.
 - **Export / import**: right-click a workspace → *Export…* to save it as a single `.paperbundle` file with all its
   images and videos inside; *Import Workspace…* in the panel title bar adds it to another repository or machine. Code
   papers keep their relative paths, so import into a checkout of the same project.

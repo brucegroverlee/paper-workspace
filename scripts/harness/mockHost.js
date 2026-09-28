@@ -61,16 +61,26 @@
     version: 2,
     nodes: [
       { id: 'f1', type: 'file', file: ctxFile, position: { x: 0, y: 0 }, width: 664, height: 560 },
-      { id: 'd1', type: 'folder', folder: 'src/pages/business/services', color: '#c5e3ff', position: { x: 744, y: 0 }, width: 640, height: 420 },
+      { id: 'd1', type: 'folder', folder: 'src/pages/business/services', color: '#c5e3ff', tags: ['t1', 't2'], position: { x: 744, y: 0 }, width: 640, height: 420 },
       { id: 'f2', type: 'file', parent: 'd1', file: 'src/pages/business/services/ServicesController.tsx', position: { x: 16, y: 56 }, width: 584, height: 330 },
       { id: 'e1', type: 'editor', parent: 'f1', target: { start: 7, end: 12 }, position: { x: 12, y: 40 }, width: 640, height: 220 },
       { id: 'e2', type: 'editor', parent: 'f1', target: { start: 19, end: 27 }, position: { x: 12, y: 276 }, width: 640, height: 272 },
       { id: 'e3', type: 'editor', parent: 'f2', position: { x: 12, y: 40 }, width: 560, height: 278 },
     ],
-    edges: [],
+    tags: [{ id: 't1', label: 'Entry point', color: '#7048e8' }, { id: 't2', label: 'Do not touch', color: '#e03131' }],
+    edges: [{ id: 'l1', source: 'e2', target: 'e3', sourceSide: 'right', targetSide: 'left', label: 'uses' }],
   };
   // ?empty opens a fresh canvas with no nodes.
   if (new URLSearchParams(location.search).has('empty')) workspace.nodes = [];
+  // ?many=N adds N more papers of the first file in a grid, each linked to the next (for performance checks).
+  const many = Number(new URLSearchParams(location.search).get('many')) || 0;
+  for (let i = 0; i < many; i++) {
+    const id = `m${i}`;
+    const start = 1 + ((i * 7) % 30);
+    workspace.nodes.push({ id: `mf${i}`, type: 'file', file: ctxFile, position: { x: (i % 6) * 720, y: 700 + Math.floor(i / 6) * 440 }, width: 664, height: 400 });
+    workspace.nodes.push({ id, type: 'editor', parent: `mf${i}`, target: { start, end: start + 6 }, position: { x: 12, y: 40 }, width: 640, height: 348 });
+    if (i) workspace.edges.push({ id: `ml${i}`, source: `m${i - 1}`, target: id, sourceSide: 'right', targetSide: 'left' });
+  }
   const settings = { fontFamily: "Consolas, 'Courier New', monospace", fontSize: 14, lineHeight: 19, tabSize: 2 };
   let config = { minNodeWidth: 50, minNodeHeight: 50, focusPercent: 80, canvasBackground: '#e4e5e8', showFileTitleByDefault: true, showEditorTitleByDefault: false };
   const log = [];
@@ -167,6 +177,10 @@
         // The real host shows a folder dialog; here the folder reappears under a new name.
         case 'relinkFolder':
           return send({ type: 'folderRelinked', folder: m.folder, newFolder: `${m.folder}-moved` });
+        // The real host shows a save dialog; here the last snapshot is kept for inspection.
+        case 'saveSnapshot':
+          window.__lastSnapshot = `data:image/png;base64,${m.data}`;
+          return;
         case 'save':
           for (const f of Object.keys(dirty)) {
             if (!dirty[f]) continue;

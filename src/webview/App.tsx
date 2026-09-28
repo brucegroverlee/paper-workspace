@@ -77,6 +77,7 @@ import { ResizeBadge } from './ResizeBadge';
 import { ShapesPanel } from './ShapesPanel';
 import { SHAPE_DRAG_TYPE, shapeDef } from './shapes';
 import { TagManagerDialog, TagPickerDialog, ZoomCssVar } from './Tags';
+import { captureView, captureWorkspace, settle, type SnapshotScope } from './snapshot';
 import { host, onHostMessage } from './vscodeApi';
 
 const nodeTypes = { file: FileNode, editor: EditorNode, folder: FolderNode, group: GroupNode, text: TextNode, note: TextNode, media: MediaNode, shape: ShapeNode };
@@ -488,6 +489,12 @@ export function App() {
   const pendingReveal = useRef<string | null>(null);
   const initialViewport = useMemo(() => host.getState<PersistedState>()?.viewport, []);
   const [minimap, setMinimap] = useState(() => host.getState<PersistedState>()?.minimap ?? true);
+  /** A snapshot is being taken. */
+  const [snapshot, setSnapshot] = useState<SnapshotScope | null>(null);
+  /** Offscreen papers are rendered too, until a workspace snapshot has copied them. */
+  const [renderAll, setRenderAll] = useState(false);
+  /** Outcome note under the canvas: the image went to VS Code's save dialog, or why it could not be made. */
+  const [snapshotNote, setSnapshotNote] = useState<{ text: string; error?: boolean } | null>(null);
   if (__HARNESS__) (window as any).__rf = rf;
 
   // ---- persistence -------------------------------------------------------------------------------
@@ -1390,6 +1397,42 @@ export function App() {
     [rf],
   );
 
+  // ---- snapshots ---------------------------------------------------------------------------------
+
+  const takeSnapshot = useCallback(
+    async (scope: SnapshotScope) => {
+      setSnapshotNote(null);
+      setSnapshot(scope);
+      if (scope === 'workspace') setRenderAll(true);
+      try {
+        // Let the menu close and, for the whole workspace, offscreen papers mount and lay out their editors.
+        await settle(scope === 'workspace' ? 800 : 50);
+        const background = configRef.current.canvasBackground;
+        let data: string;
+        if (scope === 'view') data = await captureView(background);
+        else {
+          const shown = rf.getNodes().filter((n) => !n.hidden);
+          if (!shown.length) throw new Error('the workspace is empty');
+          data = await captureWorkspace(rf.getNodesBounds(shown), rf.getViewport(), background, () => setRenderAll(false));
+        }
+        host.postMessage({ type: 'saveSnapshot', scope, data });
+        setSnapshotNote({ text: 'Snapshot ready: choose where to save it in the dialog.' });
+      } catch (e) {
+        setSnapshotNote({ text: `Could not take the snapshot: ${e instanceof Error ? e.message : String(e)}`, error: true });
+      } finally {
+        setSnapshot(null);
+        setRenderAll(false);
+      }
+    },
+    [rf],
+  );
+
+  useEffect(() => {
+    if (!snapshotNote) return;
+    const t = setTimeout(() => setSnapshotNote(null), snapshotNote.error ? 6000 : 3000);
+    return () => clearTimeout(t);
+  }, [snapshotNote]);
+
   // ---- drag & drop from the Explorer (VS Code requires holding Shift) ------------------------------
 
   const onDragOver = (e: React.DragEvent) => {
@@ -1478,7 +1521,8 @@ export function App() {
             else lastFocused.current = null;
           }}
           // Offscreen editors unmount (their Monaco instance is disposed) and restore their scroll on return.
-          onlyRenderVisibleElements
+          // A workspace snapshot needs every paper in the DOM while it is drawn.
+          onlyRenderVisibleElements={!renderAll}
           minZoom={ZOOM_LIMITS.min}
           maxZoom={ZOOM_LIMITS.max}
           panOnScroll
@@ -1512,9 +1556,13 @@ export function App() {
           onMinimap={toggleMinimap}
           tagsOpen={tagDialog?.kind === 'manager'}
           onTags={() => setTagDialog((d) => (d?.kind === 'manager' ? null : { kind: 'manager' }))}
+          snapshotBusy={!!snapshot}
+          onSnapshot={(scope) => void takeSnapshot(scope)}
         />
         {panel === 'config' && <ConfigPanel config={config} onChange={changeConfig} onClose={() => setPanel(null)} />}
         {panel === 'shapes' && <ShapesPanel onAdd={(shape) => addShape(shape)} onClose={() => setPanel(null)} />}
+        {snapshot && <div className="pw-toast">Taking a snapshot…</div>}
+        {!snapshot && snapshotNote && <div className={snapshotNote.error ? 'pw-banner' : 'pw-toast'}>{snapshotNote.text}</div>}
         {workspaceError && (
           <div className="pw-banner">
             This .workspace file could not be parsed, so the canvas is read-only until it is fixed: {workspaceError}

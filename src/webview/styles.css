@@ -1439,6 +1439,24 @@ kbd {
   background: var(--pw-toolbar-bg);
 }
 
+/* Progress note while a workspace snapshot is drawn (outside .react-flow, so it is not in the image). */
+.pw-toast {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 8px 14px;
+  background: var(--pw-toolbar-bg);
+  border: 1px solid var(--pw-paper-border);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px var(--pw-shadow);
+  color: var(--pw-fg);
+  font-family: var(--pw-font);
+  font-size: 12px;
+  pointer-events: none;
+}
+
 .pw-banner {
   position: absolute;
   top: 16px;
@@ -1454,16 +1472,23 @@ kbd {
 }
 
 .pw-help {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 30;
   display: grid;
   place-items: center;
+  padding: 16px;
   background: rgba(0, 0, 0, 0.35);
 }
 
+/* Fits the view's height: the title stays put and the shortcut list scrolls. */
 .pw-help-card {
-  width: min(560px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(560px, 100%);
+  max-height: 100%;
+  min-height: 0;
   padding: 16px 20px;
   border-radius: 10px;
   background: var(--pw-toolbar-bg);
@@ -1472,6 +1497,7 @@ kbd {
 }
 
 .pw-help-title {
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1483,7 +1509,11 @@ kbd {
 .pw-help dl {
   margin: 0;
   display: grid;
+  align-content: start;
   gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .pw-help dl > div {

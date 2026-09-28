@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { MEDIA_EXTS, WORKSPACE_DIR, isFolderNode, isMediaPath, parseWorkspace, serializeWorkspace, type WorkspaceFile } from '../shared/workspace';
 import type { HostToWebview, TextChange, WebviewToHost } from '../shared/protocol';
 import type { LanguageRequest } from '../shared/language';
-import { WorkspaceStore, canvasConfig, editorSettings, exists, replaceDocument, updateCanvasConfig } from './workspaceStore';
+import { WorkspaceStore, canvasConfig, editorSettings, exists, labelFor, replaceDocument, updateCanvasConfig } from './workspaceStore';
 import type { TakeoverController } from './takeover';
 import { findDefinition } from './definition';
 import { LanguageBridge, diagnosticsFor } from './language';
@@ -235,6 +235,9 @@ class CanvasSession {
         } catch (e) {
           void vscode.window.showWarningMessage(`Paper Workspace: could not save the pasted media: ${(e as Error).message}`);
         }
+        break;
+      case 'saveSnapshot':
+        await this.saveSnapshot(m.scope, m.data);
         break;
       case 'save':
         await this.saveAll();
@@ -568,6 +571,34 @@ class CanvasSession {
     const uris = new Set([this.document.uri.toString(), ...this.files.values()]);
     const dirty = vscode.workspace.textDocuments.filter((d) => d.isDirty && uris.has(d.uri.toString()));
     await Promise.all(dirty.map((d) => d.save()));
+  }
+
+  // ---- snapshots ----------------------------------------------------------------------------
+
+  /** Asks where to store a snapshot (named after the workspace, scope and time), writes it and offers to open it. */
+  private async saveSnapshot(scope: 'view' | 'workspace', data: string) {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, '0');
+    const when = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}`;
+    const name = labelFor(this.document.uri);
+    const dest = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.joinPath(this.store.rootFor(this.document.uri), `${name} ${scope} ${when}.png`),
+      filters: { 'PNG image': ['png'] },
+      saveLabel: 'Save snapshot',
+      title: scope === 'view' ? `Save a snapshot of the current view of "${name}"` : `Save a snapshot of the whole "${name}" workspace`,
+    });
+    if (!dest) return;
+    try {
+      await vscode.workspace.fs.writeFile(dest, Buffer.from(data, 'base64'));
+    } catch (e) {
+      void vscode.window.showErrorMessage(`Paper Workspace: could not save the snapshot: ${(e as Error).message}`);
+      return;
+    }
+    const open = 'Open';
+    const reveal = process.platform === 'darwin' ? 'Reveal in Finder' : 'Reveal in File Explorer';
+    const pick = await vscode.window.showInformationMessage(`Paper Workspace: snapshot saved to ${dest.fsPath}.`, open, reveal);
+    if (pick === open) await vscode.commands.executeCommand('vscode.open', dest, { viewColumn: vscode.ViewColumn.Beside });
+    else if (pick === reveal) await vscode.commands.executeCommand('revealFileInOS', dest);
   }
 
   // ---- html ----------------------------------------------------------------------------------

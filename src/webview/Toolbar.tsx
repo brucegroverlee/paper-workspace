@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useReactFlow, useStore, type FitViewOptions } from '@xyflow/react';
 import {
   DEFAULT_CANVAS_BACKGROUND,
@@ -10,6 +10,8 @@ import {
   clampNodeSize,
 } from '../shared/workspace';
 import { DEFAULT_CANVAS_CONFIG, type CanvasConfig } from '../shared/protocol';
+import { MenuPopup } from './HeaderMenu';
+import type { SnapshotScope } from './snapshot';
 
 export type Tool = 'select' | 'hand';
 export type CreateKind = 'group' | 'text' | 'note' | 'media';
@@ -47,6 +49,9 @@ export function Toolbar(props: {
   onMinimap(): void;
   tagsOpen: boolean;
   onTags(): void;
+  /** A snapshot is being taken (the button is disabled until it is handed to the host). */
+  snapshotBusy: boolean;
+  onSnapshot(scope: SnapshotScope): void;
 }) {
   const rf = useReactFlow();
   const zoom = useStore((s) => s.transform[2]);
@@ -78,6 +83,7 @@ export function Toolbar(props: {
       </div>
       <div className="pw-tool-group">
         <ToolButton icon="tag" label="Tags — rename, recolor or create this workspace's tags" active={props.tagsOpen} onClick={props.onTags} />
+        <SnapshotButton busy={props.snapshotBusy} onSnapshot={props.onSnapshot} />
         <ToolButton icon="file-code" label="View the workspace file's source" onClick={props.onViewSource} />
         <ToolButton icon="map" label={props.minimapOpen ? 'Hide the minimap' : 'Show the minimap'} active={props.minimapOpen} onClick={props.onMinimap} />
         <ToolButton icon="settings-gear" label="Configuration" active={props.configOpen} onClick={props.onConfig} />
@@ -99,9 +105,50 @@ const HAND_ICON = (
   </svg>
 );
 
-function ToolButton(props: { icon: string; label: string; active?: boolean; disabled?: boolean; onClick?(): void }) {
+/** Camera button with a menu: snapshot of what is on screen, or of every paper in the workspace. */
+function SnapshotButton(props: { busy: boolean; onSnapshot(scope: SnapshotScope): void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const toggle = () => {
+    if (menu) return setMenu(null);
+    const r = ref.current!.getBoundingClientRect();
+    setMenu({ x: r.right + 8, y: r.top }); // beside the toolbar, like its panels
+  };
+  return (
+    <>
+      <ToolButton
+        buttonRef={ref}
+        icon={props.busy ? 'loading' : 'device-camera'}
+        label={props.busy ? 'Taking a snapshot…' : 'Snapshot — save the current view or the whole workspace as an image'}
+        active={!!menu}
+        disabled={props.busy}
+        onClick={toggle}
+      />
+      {menu && (
+        <MenuPopup
+          anchor={menu}
+          items={[
+            { icon: 'screen-normal', label: 'Snapshot of the current view', onClick: () => props.onSnapshot('view') },
+            { icon: 'screen-full', label: 'Snapshot of the whole workspace', onClick: () => props.onSnapshot('workspace') },
+          ]}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function ToolButton(props: {
+  icon: string;
+  label: string;
+  active?: boolean;
+  disabled?: boolean;
+  onClick?(): void;
+  buttonRef?: React.Ref<HTMLButtonElement>;
+}) {
   return (
     <button
+      ref={props.buttonRef}
       className={`pw-tool${props.active ? ' active' : ''}`}
       title={props.label}
       aria-label={props.label}
@@ -109,7 +156,7 @@ function ToolButton(props: { icon: string; label: string; active?: boolean; disa
       disabled={props.disabled}
       onClick={props.onClick}
     >
-      {props.icon === 'hand' ? HAND_ICON : <span className={`codicon codicon-${props.icon}`} />}
+      {props.icon === 'hand' ? HAND_ICON : <span className={`codicon codicon-${props.icon}${props.icon === 'loading' ? ' codicon-modifier-spin' : ''}`} />}
     </button>
   );
 }
@@ -244,26 +291,32 @@ function ColorField(props: { label: string; value: string; defaultValue: string;
 
 export function HelpOverlay(props: { onClose(): void }) {
   const rows: [string, string][] = [
-    ['Add code', 'Select lines in an editor → Ctrl+Alt+P, or Explorer → "Add to Paper Workspace"'],
-    ['Drop files', 'Hold Shift while dragging files from the Explorer onto the canvas'],
-    ['Edit & scroll', 'Each snippet is a full editor: scroll, edit, Ctrl+S saves the layout and all changed files'],
-    ['Add snippet', '＋ on a file header adds another editor for that file (seeded with your selection)'],
-    ['Target', 'Pin sets a snippet’s target to the selection (or visible lines); ◎ / the pill scrolls back to it'],
+    ['Add code', 'Select lines in an editor → Ctrl+Alt+P, or right-click a file or folder in the Explorer → "Add to Paper Workspace"'],
+    ['Drop files', 'Hold Shift while dragging files or folders from the Explorer onto the canvas'],
+    ['Edit & scroll', 'Each snippet is a full editor: scroll, edit, Ctrl+click to go to a definition; Ctrl+S saves the layout and all changed files'],
+    ['Add snippet', '⋮ (or right-click) on a file header → Add a snippet editor: another editor for that file, seeded with your selection'],
+    ['Target', '⋮ (or right-click) → Set target to selection (or the visible lines), or Clear target; ◎ or the "Back to" pill scrolls back to it'],
+    ['Folders', 'A folder is a container like a group: files added from that folder go inside it; its header button reveals it in the Explorer'],
     ['Group', 'Ctrl+G wraps the selection in a group (or adds an empty one); drag nodes in or out by dropping them; Ctrl+Shift+G ungroups'],
     ['Text & notes', 'T adds text, N a sticky note; double-click to edit, Esc or Ctrl+Enter to finish'],
     ['Shapes', 'The shapes button (S) opens the shape library: click a shape to add it, or drag it onto the canvas or into a group; double-click a shape to label it'],
     ['Links', 'Hover a node and drag from a dot on any side onto another node (or its side); select a link to change its color, thickness, line style, path, arrow heads and label; double-click it to write the label; drag an end to reconnect it'],
     ['Copy & paste', 'Ctrl+C / Ctrl+X copy or cut the selected groups, text, notes, shapes and media; Ctrl+V pastes at the pointer (as often as you like); Ctrl+D duplicates'],
-    ['Tags', 'Right-click a file or snippet → Add a tag: pick tags or type a new one; the × on a chip removes it. The tag button in the toolbar edits all of this workspace’s tags'],
+    ['Tags', 'Right-click a file, snippet or folder → Add a tag (or Edit tags): pick tags or type a new one; the × on a chip removes it. The tag button in the toolbar edits all of this workspace’s tags'],
+    ['Titles & captions', 'Double-click a title to rename it; ⋮ (or right-click) shows or hides it, sets the title bar and body colors, and adds an annotation. Right-click the empty canvas to show or hide all titles or tags'],
     ['Media', 'Toolbar image button, Ctrl+V with an image on the clipboard, or drop image/video files'],
     ['Colors & fonts', 'Select a group, text, note or shape and use the toolbar above it; the canvas background is in the ⚙ configuration panel'],
     ['Resize', 'Select a node and drag its handles (the minimum size is in the ⚙ configuration panel)'],
-    ['Move', 'Drag a file or snippet by its header; groups, text, notes and media anywhere'],
-    ['Pan', 'Scroll over the canvas, middle-drag, hold Space, or use the Hand tool (H)'],
+    ['Move', 'Drag a file or snippet by its header; folders, groups, text, notes, shapes and media anywhere'],
+    ['Select', 'Select tool (V): drag on the empty canvas to box-select; Shift or Ctrl+click adds to the selection'],
+    ['Pan', 'Scroll over the canvas, middle- or right-drag, hold Space, or use the Hand tool (H)'],
     ['Zoom', 'Ctrl + scroll (also over code), pinch, or the zoom slider'],
-    ['Fit all', 'Shift+1'],
-    ['Remove', 'Select a file or snippet and press Delete (the source file is not touched)'],
-    ['Open in editor', 'Double-click a file header'],
+    ['Focus', 'Double-click a header (or ⋮ → Focus on this paper) to zoom to it; the zoom level is in the ⚙ configuration panel'],
+    ['Fit all', 'Shift+1 or the fit button in the toolbar'],
+    ['Snapshot', 'The camera button saves the current view, or every paper in the workspace, as a PNG image where you choose'],
+    ['Remove', 'Select a node and press Delete, or use × on its header (the source file is not touched)'],
+    ['Open in editor', 'The go-to-file button on a file or snippet header opens it in a text editor at its target'],
+    ['Snapshot', 'The camera button saves the current view or the whole workspace as an image'],
   ];
   return (
     <div className="pw-help" role="dialog" aria-label="Paper Workspace help" onClick={props.onClose}>

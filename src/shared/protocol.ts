@@ -111,5 +111,7 @@ export type WebviewToHost =
   | { type: 'relinkFile'; file: string }
   /** Let the user pick a folder to show instead of a missing one; answered with `folderRelinked` (nothing if cancelled). */
   | { type: 'relinkFolder'; folder: string }
+  /** A PNG snapshot (base64) of the current view or the whole workspace; the host asks where to save it. */
+  | { type: 'saveSnapshot'; scope: 'view' | 'workspace'; data: string }
   /** IntelliSense for a paper, answered by VS Code's language providers with `languageResult`. */
   | { type: 'language'; id: number; file: string; request: LanguageRequest };
