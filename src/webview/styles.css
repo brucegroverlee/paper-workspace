@@ -845,6 +845,50 @@ body {
   font-style: italic;
 }
 
+.pw-text-node {
+  position: relative;
+}
+
+/* The pen at the bottom-right corner that edits the text (double-click focuses the node instead). Floating text has no
+   box to hold it, so there it sits just outside, beside the last line. Shown while hovered or selected. */
+.pw-text-edit {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.18);
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.pw-text .pw-text-edit {
+  right: -28px;
+  bottom: 0;
+  color: var(--pw-canvas-fg);
+}
+
+.pw-text-node:hover .pw-text-edit,
+.pw-text-node.selected .pw-text-edit,
+.pw-text-edit:focus-visible {
+  opacity: 1;
+}
+
+.pw-text-edit:hover {
+  background: rgba(128, 128, 128, 0.35);
+}
+
+.pw-text-edit .codicon {
+  font-size: 14px;
+}
+
 .pw-text-input {
   display: block;
   width: 100%;
@@ -930,7 +974,7 @@ body {
 }
 
 .pw-node-toolbar-bar,
-.pw-palette {
+.pw-toolbar-palette {
   background: var(--pw-toolbar-bg);
   border: 1px solid var(--pw-paper-border);
   border-radius: 10px;
@@ -1142,52 +1186,30 @@ body {
   background: linear-gradient(135deg, transparent 45%, var(--pw-error) 45%, var(--pw-error) 55%, transparent 55%);
 }
 
-.pw-palette {
+/* The shared palette (ColorPalette.tsx) hanging above a node or link toolbar, with its default / no fill options. */
+.pw-toolbar-palette {
   position: absolute;
   bottom: calc(100% + 8px);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
+  color: var(--pw-fg);
 }
 
-.pw-palette.below {
+.pw-toolbar-palette.below {
   bottom: auto;
   top: calc(100% + 8px);
 }
 
-.pw-palette-row {
-  display: grid;
-  grid-template-columns: repeat(8, 28px);
-  gap: 10px;
-}
-
-.pw-swatch {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  cursor: pointer;
-  transition: transform 0.08s;
-}
-
-.pw-swatch:hover {
-  transform: scale(1.12);
-}
-
-.pw-swatch.active {
-  box-shadow: 0 0 0 2px var(--pw-toolbar-bg), 0 0 0 4px var(--pw-accent);
-}
-
-.pw-palette-footer {
+.pw-toolbar-palette-footer {
   display: flex;
   gap: 8px;
-  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--pw-paper-border);
 }
 
-.pw-palette-link {
-  position: relative;
+.pw-toolbar-palette-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1200,21 +1222,14 @@ body {
   cursor: pointer;
 }
 
-.pw-palette-link:hover,
-.pw-palette-link.active {
+.pw-toolbar-palette-link:hover,
+.pw-toolbar-palette-link.active {
   background: var(--pw-hover);
 }
 
-.pw-palette-link .pw-swatch-dot {
+.pw-toolbar-palette-link .pw-swatch-dot {
   width: 14px;
   height: 14px;
-}
-
-.pw-palette-link input[type='color'] {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
 }
 
 /* ---- config panel (opens beside the toolbar) --------------------------------------------------- */
@@ -2368,15 +2383,6 @@ kbd {
   flex-direction: column;
   gap: 4px;
   width: max-content;
-}
-
-/* The node toolbar's older palette shares the class and hangs above its toolbar; inside a popup it stays in the flow. */
-.pw-color-popup .pw-palette {
-  position: static;
-  padding: 0;
-  background: none;
-  border: none;
-  box-shadow: none;
 }
 
 .pw-palette-grid {

@@ -22,7 +22,6 @@ import {
   groupHeaderHeight,
   type GroupTitlePosition,
   NODE_SIZE_FLOOR,
-  PALETTE,
   clampFontSize,
   isLightColor,
   isVideoPath,
@@ -32,6 +31,7 @@ import { useLocked, useWorkspace, type RFGroupNode, type RFMediaNode, type RFSha
 import { LockBadge } from './NodeTitle';
 import { shapeDef, textBoxOf, type ShapeDef } from './shapes';
 import { NodeHandles } from './handles';
+import { ColorPalette } from './ColorPalette';
 
 /** Nodes that start in edit mode when they mount (just created). */
 const editOnMount = new Set<string>();
@@ -226,7 +226,8 @@ export const TextNode = memo(function TextNode({ id, type, data, selected, heigh
     <div
       className={`pw-text-node ${note ? 'pw-note' : 'pw-text'}${selected ? ' selected' : ''}${editing ? ' editing' : ''}`}
       style={style}
-      onDoubleClick={() => (locked ? ctx.focusNode(id) : setEditing(true))}
+      // Double-click focuses the view on it (the pen button edits); inside the editor it keeps selecting words.
+      onDoubleClick={() => !editing && ctx.focusNode(id)}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -264,9 +265,23 @@ export const TextNode = memo(function TextNode({ id, type, data, selected, heigh
         ) : data.text ? (
           data.text
         ) : (
-          <span className="pw-text-placeholder">{note ? 'Double-click to write' : 'Text'}</span>
+          <span className="pw-text-placeholder">{note ? 'Click the pen to write' : 'Text'}</span>
         )}
       </div>
+      {!editing && !locked && (
+        <button
+          className="pw-text-edit nodrag"
+          title="Edit text"
+          aria-label="Edit text"
+          onClick={(e) => {
+            e.stopPropagation();
+            setEditing(true);
+          }}
+          onDoubleClick={stop}
+        >
+          <span className="codicon codicon-edit" />
+        </button>
+      )}
     </div>
   );
 });
@@ -593,7 +608,7 @@ function BoardToolbar(props: {
   return (
     <NodeToolbar position={Position.Top} offset={10} className="pw-node-toolbar" onPointerDown={stop} onDoubleClick={stop}>
       {slot && (
-        <ColorPalette
+        <ToolbarPalette
           key={slot.key}
           value={slot.value}
           allowDefault={slot.allowDefault}
@@ -874,7 +889,12 @@ function DropdownMenu<T extends string | number>(props: { label: string; value: 
   );
 }
 
-export function ColorPalette(props: {
+/**
+ * The node and link toolbars' color picker: the shared palette (ColorPalette.tsx, as used for tags) hanging above the
+ * toolbar, plus "Theme default" / "Automatic" (clears the value) and "No fill" where the slot offers them.
+ * Closes on a pick; the custom picker previews live and leaves it open.
+ */
+export function ToolbarPalette(props: {
   value?: string;
   allowDefault?: boolean;
   allowNone?: boolean;
@@ -886,36 +906,27 @@ export function ColorPalette(props: {
   useDismiss(ref, props.onClose);
   const below = useFlipBelow(ref);
   const value = props.value?.toLowerCase();
-  const swatch = (c: string) => (
-    <button
-      key={c}
-      className={`pw-swatch${value === c ? ' active' : ''}`}
-      style={{ background: c }}
-      title={c}
-      aria-label={`Color ${c}`}
-      onClick={() => props.onPick(c)}
-    />
-  );
+  const pick = (color: string | undefined, final = true) => {
+    props.onPick(color);
+    if (final) props.onClose();
+  };
   return (
-    <div ref={ref} className={`pw-palette${below ? ' below' : ''}`} role="dialog" aria-label="Colors">
-      <div className="pw-palette-row">{PALETTE.dark.map(swatch)}</div>
-      <div className="pw-palette-row">{PALETTE.light.map(swatch)}</div>
-      <div className="pw-palette-footer">
-        {props.allowDefault && (
-          <button className={`pw-palette-link${value ? '' : ' active'}`} onClick={() => props.onPick(undefined)}>
-            <span className={`pw-swatch-dot default`} /> {props.defaultLabel}
-          </button>
-        )}
-        {props.allowNone && (
-          <button className={`pw-palette-link${value === 'none' ? ' active' : ''}`} onClick={() => props.onPick('none')}>
-            <span className={`pw-swatch-dot default`} /> No fill
-          </button>
-        )}
-        <label className="pw-palette-link" title="Pick any color">
-          <span className="codicon codicon-symbol-color" /> Custom…
-          <input type="color" value={value && value !== 'none' ? value : '#888888'} onChange={(e) => props.onPick(e.target.value.toLowerCase())} />
-        </label>
-      </div>
+    <div ref={ref} className={`pw-toolbar-palette${below ? ' below' : ''}`} role="dialog" aria-label="Colors">
+      <ColorPalette value={value === 'none' ? undefined : value} onChange={pick} />
+      {(props.allowDefault || props.allowNone) && (
+        <div className="pw-toolbar-palette-footer">
+          {props.allowDefault && (
+            <button className={`pw-toolbar-palette-link${value ? '' : ' active'}`} onClick={() => pick(undefined)}>
+              <span className="pw-swatch-dot default" /> {props.defaultLabel}
+            </button>
+          )}
+          {props.allowNone && (
+            <button className={`pw-toolbar-palette-link${value === 'none' ? ' active' : ''}`} onClick={() => pick('none')}>
+              <span className="pw-swatch-dot default" /> No fill
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

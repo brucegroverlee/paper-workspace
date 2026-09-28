@@ -342,11 +342,6 @@ export const DEFAULT_EDGE_FONT_SIZE = 14;
 export const EDGE_WIDTHS = [1, 2, 3, 4, 6, 8] as const;
 export const EDGE_WIDTH_CEILING = 20;
 export const DEFAULT_NOTE_FONT_SIZE = 14;
-/** Swatches of the color picker: a muted dark row and a light pastel row. */
-export const PALETTE = {
-  dark: ['#2b2f36', '#3d4450', '#6b2f2f', '#6e4428', '#6b5a24', '#2d5236', '#27405f', '#46315f'],
-  light: ['#ffffff', '#e5e5e5', '#ffc9c9', '#ffd6a5', '#ffec99', '#b2f2bb', '#c5e3ff', '#e5dbff'],
-};
 /**
  * The color picker's grid (see the webview's ColorPalette): greys, bright hues, then six rows of shades from light to
  * dark. Every row has one color per column.

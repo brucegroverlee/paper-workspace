@@ -140,7 +140,8 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
   Copies start unlocked.
 * **Text** (no background, `color` = text color, height follows the content) and **note** (sticky note, `color` =
   background, `textColor` = text color, automatic contrast when unset). Both have an optional `fontSize` (any px value,
-  typed or picked from the toolbar dropdown) and `fontWeight`. Double-click to edit; an emptied text is removed.
+  typed or picked from the toolbar dropdown) and `fontWeight`. The pen at the bottom-right corner edits (double-click
+  focuses the view on it, like other nodes); an emptied text is removed.
 * **Shape**: a diagram shape from the shapes panel (toolbar or S): general shapes, flowchart symbols and block arrows
   (`src/webview/shapes.ts`; an unknown `shape` renders as a rectangle, so new kinds stay readable). Paths are computed
   for the node's pixel size, so outlines and corner radii do not stretch when resized. `color` = fill (`"none"` = no

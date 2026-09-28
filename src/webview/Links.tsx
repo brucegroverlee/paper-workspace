@@ -17,7 +17,7 @@ import {
   type EdgePath,
   type XY,
 } from '../shared/workspace';
-import { ColorPalette, Dropdown, FontSizeField, TextEditor, ToolbarButton, stop, type Option } from './BoardNodes';
+import { Dropdown, FontSizeField, TextEditor, ToolbarButton, ToolbarPalette, stop, type Option } from './BoardNodes';
 import { useWorkspace, type LinkData, type RFEdge } from './context';
 import { HANDLE_SIZE } from './handles';
 
@@ -319,7 +319,7 @@ function LinkToolbar(props: { id: string; data: LinkData; x: number; y: number; 
       onContextMenu={stop}
     >
       {colorSlot && (
-        <ColorPalette
+        <ToolbarPalette
           key={colorSlot.key}
           value={colorSlot.value}
           allowDefault
