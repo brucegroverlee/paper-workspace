@@ -238,6 +238,12 @@ body {
   --pw-hover: rgba(255, 255, 255, 0.18);
 }
 
+/* The empty body of a file with several snippets drags it too (see FILE_DRAG_HANDLE). */
+.pw-file:not(.single) {
+  cursor: grab;
+}
+
+.react-flow__node.dragging .pw-file:not(.single),
 .react-flow__node.dragging .pw-file-header,
 .react-flow__node.dragging .pw-editor-header {
   cursor: grabbing;

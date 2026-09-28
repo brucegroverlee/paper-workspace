@@ -98,9 +98,10 @@ const isTitled = (n: RFNode): n is RFFileNode | RFEditorNode | RFFolderNode => i
 const isBox = (n: RFNode) => n.type !== 'editor';
 const isGroup = (n: RFNode): n is RFGroupNode => n.type === 'group';
 
-// Headers drag their paper; so does the code area while it is a static preview (zoomed far out).
+// Headers drag their paper; so does the code area while it is a static preview (zoomed far out), and the empty body
+// of a file with several snippets (its editors are separate nodes, so only the gaps between them match).
 const EDITOR_DRAG_HANDLE = '.pw-editor-header, .pw-editor-body.preview, .pw-node-title';
-const FILE_DRAG_HANDLE = '.pw-file-header, .pw-editor-body.preview, .pw-node-title';
+const FILE_DRAG_HANDLE = '.pw-file-header, .pw-file:not(.single), .pw-editor-body.preview, .pw-node-title';
 
 /** React Flow props of a box node (anything but an editor) by kind. */
 function boxProps(type: RFNode['type']): { dragHandle?: string } {
