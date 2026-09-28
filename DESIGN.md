@@ -157,6 +157,16 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
     "workspace": { "version": 2, "nodes": [], "edges": [] },
     "media": { ".paperworkspace/media/main/shot.png": { "name": "shot.png", "data": "iVBORw0…" } } }
   ```
+* **Titles**: files and editors can carry a `title`, a name label above the box's top-left corner, like frame names in
+  Figma. It is scaled by 1/zoom so it keeps its screen size at any zoom (readable when zoomed far out) and is cut to
+  the box's width. Undefined = the file's base name, or for an editor the first highlighted (target) line, read live from
+  the model (base name without a target or on a blank line); double-click or "Rename title" edits it (empty resets). `showTitle`
+  is saved only when it differs from the default (shown); the embedded editor of a combined node never shows its title.
+  Dragging the label moves the node. New papers get `showTitle` from the config panel ("Show file/editor title by default",
+  settings `paperWorkspace.showFileTitleByDefault` = true and `showEditorTitleByDefault` = false). Right-clicking the empty
+  canvas offers Show/Hide file titles and Show/Hide editor titles: they set every paper's own `showTitle` (not a view
+  filter), so single papers can be changed afterwards. Right-drag pans, so that menu opens only for a right-click that
+  did not move (React Flow swallows the pane's contextmenu when right-drag pans; the canvas wrapper handles it).
 * **Annotations**: files, groups, shapes and media can carry an `annotation`, a small italic caption centered below the
   box (like an image caption; under a stick figure it follows the label). It is off by default (no key in the file);
   the comment button in the file header or the node toolbar adds it (`""` until typed) or removes it with its text.

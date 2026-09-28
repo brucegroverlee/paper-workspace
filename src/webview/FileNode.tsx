@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { NodeResizer, useStore, type NodeProps } from '@xyflow/react';
-import { ANNOTATION_SPACE, FILE_PADDING, FILE_HEADER_HEIGHT } from '../shared/workspace';
+import { ANNOTATION_SPACE, DEFAULT_FILE_SHOW_TITLE, FILE_PADDING, FILE_HEADER_HEIGHT } from '../shared/workspace';
 import { displayPath } from '../shared/paths';
 import { useDoc, useWorkspace, type RFEditorNode, type RFFileNode } from './context';
 import { EditorBody, TargetControls, useTargetMenuItems } from './EditorNode';
@@ -8,6 +8,7 @@ import { HeaderMenu, type MenuEntries } from './HeaderMenu';
 import { languageBadge } from './monaco';
 import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
+import { NodeTitle, useTitleMenuItems } from './NodeTitle';
 
 /** Smallest size that still contains every visible child editor, as "WxH" (a string keeps the selector stable). */
 function useChildrenExtent(id: string) {
@@ -30,7 +31,7 @@ function useChildrenExtent(id: string) {
  * One source file. With a single editor it is a combined node (the editor is embedded and its React Flow node
  * hidden); with several editors it is a group whose editors are separate, movable child nodes.
  */
-export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps<RFFileNode>) {
+export const FileNode = memo(function FileNode({ id, data, selected, width }: NodeProps<RFFileNode>) {
   const ctx = useWorkspace();
   const doc = useDoc(data.file);
   // The embedded editor of a combined node (App hides the only child of a file).
@@ -44,11 +45,13 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
   const toggleAnnotation = useToggleAnnotation(id, data.annotation);
   const missing = !!doc?.missing;
   const targetItems = useTargetMenuItems(single);
+  const titleItems = useTitleMenuItems(id, data, DEFAULT_FILE_SHOW_TITLE);
   const menuItems = (): MenuEntries => [
     ...(missing ? [] : targetItems),
     !missing && { icon: 'add', label: 'Add a snippet editor', onClick: () => ctx.addEditor(id) },
     'separator',
     { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+    ...titleItems,
   ];
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -95,6 +98,7 @@ export const FileNode = memo(function FileNode({ id, data, selected }: NodeProps
         </header>
         {single && <EditorBody id={single.id} data={single.data} fileNodeId={id} onContextMenu={openMenu} />}
       </div>
+      <NodeTitle id={id} data={data} fallback={path.slice(slash + 1)} width={width ?? 0} defaultShown={DEFAULT_FILE_SHOW_TITLE} />
       <Annotation id={id} value={data.annotation} />
     </>
   );

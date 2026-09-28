@@ -1,7 +1,8 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NodeResizer, useReactFlow, useStore, type NodeProps } from '@xyflow/react';
 import { moduleSpecifierAt, quotedStringAt } from '../shared/imports';
-import type { LineRange } from '../shared/workspace';
+import { baseName } from '../shared/paths';
+import { DEFAULT_EDITOR_SHOW_TITLE, type LineRange } from '../shared/workspace';
 import type { EditorSettings } from '../shared/protocol';
 import { useDoc, useWorkspace, type EditorNodeData, type RFEditorNode } from './context';
 import { monaco } from './monaco';
@@ -9,6 +10,7 @@ import { ZOOM_LIMITS } from './Toolbar';
 import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
 import { HeaderMenu, type HeaderMenuItem, type MenuEntries } from './HeaderMenu';
+import { NodeTitle, useTitleMenuItems } from './NodeTitle';
 
 /** Below this canvas zoom, editors render as a static preview instead of a live Monaco instance. */
 const LIVE_EDITOR_MIN_ZOOM = 0.35;
@@ -79,15 +81,21 @@ function linkRangeAt(model: monaco.editor.ITextModel, e: monaco.editor.IEditorMo
 
 // ---- node -------------------------------------------------------------------------------------------
 
-export const EditorNode = memo(function EditorNode({ id, data, selected, parentId }: NodeProps<RFEditorNode>) {
+export const EditorNode = memo(function EditorNode({ id, data, selected, parentId, width }: NodeProps<RFEditorNode>) {
   const ctx = useWorkspace();
-  const missing = !!useDoc(data.file)?.missing;
+  const doc = useDoc(data.file);
+  const missing = !!doc?.missing;
+  // Default title: the first highlighted line, live from the model (the saved anchor until it loads).
+  const firstLine = data.target && (doc?.model && data.target.start <= doc.model.getLineCount() ? doc.model.getLineContent(data.target.start).trim() : data.anchor);
+  const titleFallback = firstLine || baseName(data.file);
   const toggleAnnotation = useToggleAnnotation(id, data.annotation);
   const targetItems = useTargetMenuItems({ id, data });
+  const titleItems = useTitleMenuItems(id, data, DEFAULT_EDITOR_SHOW_TITLE);
   const menuItems = (): MenuEntries => [
     ...(missing ? [] : targetItems),
     'separator',
     { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+    ...titleItems,
   ];
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -118,6 +126,7 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
         </header>
         <EditorBody id={id} data={data} fileNodeId={parentId!} onContextMenu={openMenu} />
       </div>
+      <NodeTitle id={id} data={data} fallback={titleFallback} width={width ?? 0} defaultShown={DEFAULT_EDITOR_SHOW_TITLE} />
       <Annotation id={id} value={data.annotation} />
     </>
   );

@@ -370,6 +370,7 @@ export class WorkspaceStore implements vscode.Disposable {
       target,
       anchor: target && source.lineAt(target.start - 1).text.trim(),
       lineHeight: editorSettings().lineHeight,
+      showTitles: titleDefaults(),
       origin,
       position,
     });
@@ -428,7 +429,15 @@ export function canvasConfig(): CanvasConfig {
     minNodeHeight: clampNodeSize(c.get('minNodeHeight')),
     focusPercent: clampFocusPercent(c.get('focusPercent')),
     canvasBackground: canvasBackgroundOf(c.get('canvasBackground')),
+    showFileTitleByDefault: c.get<boolean>('showFileTitleByDefault', true) !== false,
+    showEditorTitleByDefault: c.get<boolean>('showEditorTitleByDefault', false) === true,
   };
+}
+
+/** Title visibility for new papers, from the config panel. */
+function titleDefaults() {
+  const c = canvasConfig();
+  return { file: c.showFileTitleByDefault, editor: c.showEditorTitleByDefault };
 }
 
 /** Store config panel changes as user settings, so every canvas (and the Settings UI) sees them. */
@@ -438,6 +447,9 @@ export async function updateCanvasConfig(patch: Partial<CanvasConfig>) {
     if (patch[key] !== undefined) await c.update(key, clampNodeSize(patch[key]), vscode.ConfigurationTarget.Global);
   }
   if (patch.focusPercent !== undefined) await c.update('focusPercent', clampFocusPercent(patch.focusPercent), vscode.ConfigurationTarget.Global);
+  for (const key of ['showFileTitleByDefault', 'showEditorTitleByDefault'] as const) {
+    if (patch[key] !== undefined) await c.update(key, patch[key] === true, vscode.ConfigurationTarget.Global);
+  }
   if (patch.canvasBackground !== undefined) {
     await c.update('canvasBackground', canvasBackgroundOf(patch.canvasBackground), vscode.ConfigurationTarget.Global);
   }

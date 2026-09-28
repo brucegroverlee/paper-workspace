@@ -69,6 +69,16 @@
           "pattern": "^#[0-9a-fA-F]{6}$",
           "default": "#e4e5e8",
           "description": "Background color of the canvas (#rrggbb). Also editable from the canvas configuration panel."
+        },
+        "paperWorkspace.showFileTitleByDefault": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the title label above newly added file papers. Each paper can still show or hide its own title. Also editable from the canvas configuration panel."
+        },
+        "paperWorkspace.showEditorTitleByDefault": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the title label above newly added snippet editors. Each editor can still show or hide its own title. Also editable from the canvas configuration panel."
         }
       }
     },

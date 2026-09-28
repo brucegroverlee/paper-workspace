@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import { useReactFlow, useStore, type FitViewOptions } from '@xyflow/react';
 import {
   DEFAULT_CANVAS_BACKGROUND,
-  DEFAULT_FOCUS_PERCENT,
-  DEFAULT_MIN_NODE_SIZE,
   FOCUS_PERCENT_CEILING,
   FOCUS_PERCENT_FLOOR,
   NODE_SIZE_CEILING,
@@ -11,7 +9,7 @@ import {
   clampFocusPercent,
   clampNodeSize,
 } from '../shared/workspace';
-import type { CanvasConfig } from '../shared/protocol';
+import { DEFAULT_CANVAS_CONFIG, type CanvasConfig } from '../shared/protocol';
 
 export type Tool = 'select' | 'hand';
 export type CreateKind = 'group' | 'text' | 'note' | 'media';
@@ -123,6 +121,11 @@ const CONFIG_FIELDS: { key: 'minNodeWidth' | 'minNodeHeight' | 'focusPercent'; l
   { key: 'focusPercent', label: 'Focus fill', hint: '% of the window a focused paper fills (higher zooms in more)', range: FOCUS },
 ];
 
+const TITLE_FIELDS: { key: 'showFileTitleByDefault' | 'showEditorTitleByDefault'; label: string; hint: string }[] = [
+  { key: 'showFileTitleByDefault', label: 'Show file title by default', hint: 'for newly added file papers' },
+  { key: 'showEditorTitleByDefault', label: 'Show editor title by default', hint: 'for newly added snippet editors' },
+];
+
 /** Canvas configuration; values are VS Code settings (`paperWorkspace.*`), so they apply to every canvas. */
 export function ConfigPanel(props: { config: CanvasConfig; onChange(patch: Partial<CanvasConfig>): void; onClose(): void }) {
   return (
@@ -149,17 +152,14 @@ export function ConfigPanel(props: { config: CanvasConfig; onChange(patch: Parti
         defaultValue={DEFAULT_CANVAS_BACKGROUND}
         onCommit={(canvasBackground) => props.onChange({ canvasBackground })}
       />
-      <button
-        className="pw-config-reset"
-        onClick={() =>
-          props.onChange({
-            minNodeWidth: DEFAULT_MIN_NODE_SIZE,
-            minNodeHeight: DEFAULT_MIN_NODE_SIZE,
-            focusPercent: DEFAULT_FOCUS_PERCENT,
-            canvasBackground: DEFAULT_CANVAS_BACKGROUND,
-          })
-        }
-      >
+      {TITLE_FIELDS.map((f) => (
+        <label key={f.key} className="pw-config-field pw-config-check">
+          <span className="pw-config-label">{f.label}</span>
+          <input type="checkbox" checked={props.config[f.key]} onChange={(e) => props.onChange({ [f.key]: e.target.checked })} />
+          <span className="pw-config-hint">{f.hint}</span>
+        </label>
+      ))}
+      <button className="pw-config-reset" onClick={() => props.onChange(DEFAULT_CANVAS_CONFIG)}>
         Reset to defaults
       </button>
     </div>

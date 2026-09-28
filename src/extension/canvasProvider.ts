@@ -100,7 +100,7 @@ class CanvasSession {
       }),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('editor')) this.post({ type: 'settings', settings: editorSettings() });
-        if (['minNodeWidth', 'minNodeHeight', 'focusPercent', 'canvasBackground'].some((k) => e.affectsConfiguration(`paperWorkspace.${k}`))) {
+        if (['minNodeWidth', 'minNodeHeight', 'focusPercent', 'canvasBackground', 'showFileTitleByDefault', 'showEditorTitleByDefault'].some((k) => e.affectsConfiguration(`paperWorkspace.${k}`))) {
           this.post({ type: 'config', config: canvasConfig() });
         }
       }),

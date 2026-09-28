@@ -145,6 +145,32 @@ describe('parseWorkspace / serializeWorkspace', () => {
     expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
   });
 
+  it('titles: custom names kept, empty names dropped, visibility saved only when not the default (shown for files and editors)', () => {
+    const { workspace } = parseWorkspace(
+      JSON.stringify({
+        nodes: [
+          { id: 'f1', type: 'file', file: 'src/a.ts', title: 'Entry', showTitle: true },
+          { id: 'e1', type: 'editor', parent: 'f1', title: '', showTitle: true },
+          { id: 'f2', type: 'file', file: 'src/b.ts', showTitle: false },
+          { id: 'e2', type: 'editor', parent: 'f2', title: 'Parser', showTitle: false },
+          { id: 'e3', type: 'editor', parent: 'f2', showTitle: 'yes' },
+        ],
+      }),
+    );
+    const saved = JSON.parse(serializeWorkspace(workspace)).nodes;
+    const byId = Object.fromEntries(saved.map((n: { id: string }) => [n.id, n]));
+    expect(byId.f1).toMatchObject({ title: 'Entry' });
+    expect(byId.f1).not.toHaveProperty('showTitle');
+    for (const id of ['e1', 'e3']) {
+      expect(byId[id]).not.toHaveProperty('title');
+      expect(byId[id]).not.toHaveProperty('showTitle');
+    }
+    expect(byId.f2).toMatchObject({ showTitle: false });
+    expect(byId.e2).toMatchObject({ title: 'Parser', showTitle: false });
+    const text = serializeWorkspace(workspace);
+    expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
+  });
+
   it('snippet annotations: saved, and their caption space counts in the file size and the next snippet slot', () => {
     const { workspace } = parseWorkspace(
       JSON.stringify({
@@ -205,6 +231,17 @@ describe('addSnippet', () => {
     // One editor = one combined node: the editor fills the file below its header.
     expect(editor.position).toEqual({ x: 0, y: FILE_HEADER_HEIGHT });
     expect(file).toMatchObject({ width: editor.width, height: editor.height + FILE_HEADER_HEIGHT });
+  });
+
+  it('gives new files and editors the configured title visibility, leaving existing nodes alone', () => {
+    const showTitles = { file: false, editor: true };
+    const one = addSnippet(emptyWorkspace(), { ...base, file: 'src/a.ts', target: { start: 3, end: 6 }, showTitles });
+    expect(one.workspace.nodes.map((n) => (n as { showTitle?: boolean }).showTitle)).toEqual([false, true]);
+    const two = addSnippet(one.workspace, { ...base, file: 'src/a.ts', target: { start: 40, end: 50 }, showTitles: { file: true, editor: false } });
+    const byId = Object.fromEntries(two.workspace.nodes.map((n) => [n.id, n as { showTitle?: boolean }]));
+    expect(byId[one.workspace.nodes[0].id].showTitle).toBe(false); // the existing file keeps its own
+    expect(byId[one.editorId].showTitle).toBe(true);
+    expect(byId[two.editorId].showTitle).toBe(false);
   });
 
   it('adds a second snippet inside the existing file node, below the first, and grows the file', () => {

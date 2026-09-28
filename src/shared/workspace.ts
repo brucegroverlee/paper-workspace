@@ -29,6 +29,10 @@ export interface FileNode {
   file: string;
   /** Caption shown centered below the box; undefined = no annotation (the default), `''` = shown but still empty. */
   annotation?: string;
+  /** Label above the box's top-left corner (kept readable when zoomed out); undefined = the file's base name. */
+  title?: string;
+  /** Whether the title label is shown; undefined = `DEFAULT_FILE_SHOW_TITLE`. */
+  showTitle?: boolean;
   position: XY;
   width: number;
   height: number;
@@ -48,6 +52,13 @@ export interface EditorNode {
    * a combined (single-snippet) node shows the file's annotation instead.
    */
   annotation?: string;
+  /**
+   * Label above the snippet (see FileNode); undefined = the text of the target's first line (the file's base name without a
+   * target or when that line is blank). Not shown while embedded in a combined node.
+   */
+  title?: string;
+  /** Whether the title label is shown; undefined = `DEFAULT_EDITOR_SHOW_TITLE`. */
+  showTitle?: boolean;
   /** Relative to the parent file node. */
   position: XY;
   width: number;
@@ -213,6 +224,9 @@ export const NODE_SIZE_CEILING = 2000;
 export const DEFAULT_FOCUS_PERCENT = 80;
 export const FOCUS_PERCENT_FLOOR = 10;
 export const FOCUS_PERCENT_CEILING = 100;
+/** Title labels are on by default for files and snippet editors. */
+export const DEFAULT_FILE_SHOW_TITLE = true;
+export const DEFAULT_EDITOR_SHOW_TITLE = true;
 export const GROUP_HEADER_HEIGHT = 36;
 export const DEFAULT_GROUP_FONT_SIZE = 14;
 export const DEFAULT_GROUP_FONT_WEIGHT = 600;
@@ -433,12 +447,15 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
     if (typeof n.id !== 'string') continue;
     const box = { id: n.id, parent: typeof n.parent === 'string' ? n.parent : undefined, position: xy(n.position) };
     const annotation = typeof n.annotation === 'string' ? n.annotation : undefined; // text and notes have none
+    // Title labels (files and editors): an empty title means the base name; showTitle is kept only when not the default.
+    const title = typeof n.title === 'string' && n.title ? n.title : undefined;
+    const showTitle = (fallback: boolean) => (typeof n.showTitle === 'boolean' && n.showTitle !== fallback ? n.showTitle : undefined);
     const size = (d: { width: number; height: number }) => ({
       width: Math.max(NODE_SIZE_FLOOR, num(n.width, d.width)),
       height: Math.max(NODE_SIZE_FLOOR, num(n.height, d.height)),
     });
     if (n.type === 'file' && typeof n.file === 'string') {
-      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, width: num(n.width, 0), height: num(n.height, 0) };
+      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, title, showTitle: showTitle(DEFAULT_FILE_SHOW_TITLE), width: num(n.width, 0), height: num(n.height, 0) };
       files.push(f);
       boxes.push(f);
     } else if (n.type === 'group') {
@@ -499,6 +516,8 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
         target: range(n.target),
         anchor: typeof n.anchor === 'string' ? n.anchor : undefined,
         annotation,
+        title,
+        showTitle: showTitle(DEFAULT_EDITOR_SHOW_TITLE),
         position: xy(n.position, { x: FILE_PADDING, y: FILE_HEADER_HEIGHT }),
         width: Math.max(NODE_SIZE_FLOOR, num(n.width, DEFAULT_EDITOR_WIDTH)),
         height: Math.max(NODE_SIZE_FLOOR, num(n.height, DEFAULT_EDITOR_HEIGHT)),
@@ -645,12 +664,16 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
   const rect = (n: WorkspaceNode) => ({ position: round(n.position), width: Math.round(n.width), height: Math.round(n.height) });
   const head = (n: BoxNode) => ({ id: n.id, type: n.type, ...(n.parent !== undefined ? { parent: n.parent } : {}) });
   const annotation = (n: { annotation?: string }) => (n.annotation !== undefined ? { annotation: n.annotation } : {});
+  const title = (n: { title?: string; showTitle?: boolean }, fallback: boolean) => ({
+    ...(n.title ? { title: n.title } : {}),
+    ...(n.showTitle !== undefined && n.showTitle !== fallback ? { showTitle: n.showTitle } : {}),
+  });
   const out = {
     version: WORKSPACE_VERSION,
     nodes: parentsFirst(workspace.nodes, (n) => n.parent).map((n) => {
       switch (n.type) {
         case 'file':
-          return { ...head(n), file: n.file, ...annotation(n), ...rect(n) };
+          return { ...head(n), file: n.file, ...annotation(n), ...title(n, DEFAULT_FILE_SHOW_TITLE), ...rect(n) };
         case 'group':
           return {
             ...head(n),
@@ -700,6 +723,7 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
             ...(n.target ? { target: { start: n.target.start, end: n.target.end } } : {}),
             ...(n.target && n.anchor !== undefined ? { anchor: n.anchor } : {}),
             ...annotation(n),
+            ...title(n, DEFAULT_EDITOR_SHOW_TITLE),
             ...rect(n),
           };
       }
@@ -828,6 +852,8 @@ export function addSnippet(
     lineHeight: number;
     /** Canvas position for a new file node (top-left); collisions are avoided. */
     origin: XY;
+    /** Title visibility for the nodes this creates (config panel defaults); undefined = the format defaults. */
+    showTitles?: { file: boolean; editor: boolean };
     /** Explicit position (drops): used as-is. */
     position?: XY;
     id?: () => string;
@@ -851,6 +877,7 @@ export function addSnippet(
       parent: fileNode.id,
       target,
       anchor: target ? opts.anchor : undefined,
+      showTitle: opts.showTitles?.editor,
       position: nextEditorSlot(editors),
       width: editors.length ? Math.max(...editors.map((e) => e.width)) : DEFAULT_EDITOR_WIDTH,
       height: editorHeightFor(target, opts.lineHeight),
@@ -868,6 +895,7 @@ export function addSnippet(
     parent: makeId('f'),
     target,
     anchor: target ? opts.anchor : undefined,
+    showTitle: opts.showTitles?.editor,
     position: { x: 0, y: FILE_HEADER_HEIGHT },
     width: DEFAULT_EDITOR_WIDTH,
     height: editorHeightFor(target, opts.lineHeight),
@@ -878,6 +906,7 @@ export function addSnippet(
     id: editor.parent,
     type: 'file',
     file: opts.file,
+    showTitle: opts.showTitles?.file,
     position: opts.position ?? findFreePosition(occupied, opts.origin, size),
     ...size,
   };

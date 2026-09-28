@@ -18,10 +18,9 @@ import {
 import {
   DEFAULT_EDITOR_HEIGHT,
   DEFAULT_EDITOR_WIDTH,
-  DEFAULT_CANVAS_BACKGROUND,
-  DEFAULT_FOCUS_PERCENT,
+  DEFAULT_EDITOR_SHOW_TITLE,
+  DEFAULT_FILE_SHOW_TITLE,
   DEFAULT_GROUP_SIZE,
-  DEFAULT_MIN_NODE_SIZE,
   DEFAULT_NOTE_SIZE,
   DEFAULT_TEXT_SIZE,
   GROUP_HEADER_HEIGHT,
@@ -52,7 +51,7 @@ import {
   type WorkspaceNode,
 } from '../shared/workspace';
 import { isAbsoluteWorkspacePath } from '../shared/paths';
-import type { CanvasConfig, EditorSettings, HostToWebview } from '../shared/protocol';
+import { DEFAULT_CANVAS_CONFIG, type CanvasConfig, type EditorSettings, type HostToWebview } from '../shared/protocol';
 import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isWithin, reparent, sizeOf } from './boardLayout';
 import { GroupNode, MediaNode, ShapeNode, TextNode, editWhenMounted } from './BoardNodes';
 import { WorkspaceContext, type WorkspaceActions, type RFEdge, type RFEditorNode, type RFFileNode, type RFGroupNode, type RFNode, type RFShapeNode } from './context';
@@ -61,7 +60,7 @@ import { LinkEdge } from './Links';
 import { docStore } from './docStore';
 import { EditorNode, editorHasFocus, focusLastEditor, lastFocusedEditorId, requestScrollToTarget, selectedLines } from './EditorNode';
 import { FileNode } from './FileNode';
-import { MenuPopup, type MenuEntries } from './HeaderMenu';
+import { MenuPopup, type HeaderMenuItem, type MenuEntries } from './HeaderMenu';
 import { watchHostTheme } from './monaco';
 import { handleLanguageMessage, registerLanguageBridge } from './language';
 import { ConfigPanel, HelpOverlay, Toolbar, clearOfToolbar, ZOOM_LIMITS, type CreateKind, type Tool } from './Toolbar';
@@ -86,8 +85,8 @@ const isBox = (n: RFNode) => n.type !== 'editor';
 const isGroup = (n: RFNode): n is RFGroupNode => n.type === 'group';
 
 // Headers drag their paper; so does the code area while it is a static preview (zoomed far out).
-const EDITOR_DRAG_HANDLE = '.pw-editor-header, .pw-editor-body.preview';
-const FILE_DRAG_HANDLE = '.pw-file-header, .pw-editor-body.preview';
+const EDITOR_DRAG_HANDLE = '.pw-editor-header, .pw-editor-body.preview, .pw-node-title';
+const FILE_DRAG_HANDLE = '.pw-file-header, .pw-editor-body.preview, .pw-node-title';
 
 /** React Flow props of a box node (anything but an editor) by kind. */
 function boxProps(type: RFNode['type']): { dragHandle?: string } {
@@ -115,7 +114,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
     };
     if (n.type === 'file') {
       fileById.set(n.id, n.file);
-      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation } });
+      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation, title: n.title, showTitle: n.showTitle } });
     } else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight, titlePosition: n.titlePosition, strokeColor: n.strokeColor, strokeWidth: n.strokeWidth, strokeStyle: n.strokeStyle, annotation: n.annotation } });
     else if (n.type === 'media') out.push({ ...base, type: 'media', data: { src: n.src, annotation: n.annotation } });
     else if (n.type === 'shape')
@@ -139,7 +138,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
       measured: { width: n.width, height: n.height },
       dragHandle: EDITOR_DRAG_HANDLE,
       selected: selected.has(n.id),
-      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation },
+      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation, title: n.title, showTitle: n.showTitle },
     });
   }
   return normalizeLayout(out);
@@ -309,9 +308,9 @@ function toWorkspace(nodes: RFNode[], edges: RFEdge[]): WorkspaceFile {
     const parent = n.parentId !== undefined ? { parent: n.parentId } : {};
     switch (n.type) {
       case 'editor':
-        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation };
+        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle };
       case 'file':
-        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation };
+        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle };
       case 'group':
         return { ...rect, ...parent, type: 'group', ...n.data };
       case 'shape':
@@ -416,18 +415,17 @@ export function App() {
   const [tool, setTool] = useState<Tool>('select');
   const [help, setHelp] = useState(false);
   const [resizingId, setResizingId] = useState<string | null>(null);
-  const [config, setConfig] = useState<CanvasConfig>({
-    minNodeWidth: DEFAULT_MIN_NODE_SIZE,
-    minNodeHeight: DEFAULT_MIN_NODE_SIZE,
-    focusPercent: DEFAULT_FOCUS_PERCENT,
-    canvasBackground: DEFAULT_CANVAS_BACKGROUND,
-  });
+  const [config, setConfig] = useState<CanvasConfig>(DEFAULT_CANVAS_CONFIG);
   /** Side panel beside the toolbar (one at a time). */
   const [panel, setPanel] = useState<'config' | 'shapes' | null>(null);
   const togglePanel = useCallback((p: 'config' | 'shapes') => setPanel((o) => (o === p ? null : p)), []);
   /** Config edits not yet sent to the host (see changeConfig). */
   const pendingConfig = useRef<{ patch: Partial<CanvasConfig>; timer: number } | null>(null);
   const [nodeMenu, setNodeMenu] = useState<{ id: string; at: { x: number; y: number }; items?: MenuEntries } | null>(null);
+  /** Right-click on the empty canvas. */
+  const [paneMenu, setPaneMenu] = useState<{ x: number; y: number } | null>(null);
+  /** Where the right button went down, to tell a right-click from a right-drag pan. */
+  const rightDown = useRef<{ x: number; y: number } | null>(null);
   const [, setThemeTick] = useState(0);
 
   const [edges, setEdges, onEdgesChangeBase] = useEdgesState<RFEdge>([]);
@@ -435,6 +433,8 @@ export function App() {
   nodesRef.current = nodes;
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
+  const configRef = useRef(config);
+  configRef.current = config;
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const readOnlyRef = useRef(false);
@@ -489,7 +489,7 @@ export function App() {
         case 'init':
           mediaRootRef.current = m.mediaRoot ?? '';
           setSettings(m.settings);
-          if (m.config) setConfig(m.config);
+          if (m.config) setConfig({ ...DEFAULT_CANVAS_CONFIG, ...m.config });
           applyWorkspace(m.workspace, m.error);
           if (!initialViewport && m.workspace.nodes.length) {
             requestAnimationFrame(() => rf.fitView({ padding: clearOfToolbar(0.15), maxZoom: 1 }));
@@ -502,7 +502,7 @@ export function App() {
           setSettings(m.settings);
           break;
         case 'config':
-          setConfig({ ...m.config, ...pendingConfig.current?.patch }); // unsent edits win over the echo
+          setConfig({ ...DEFAULT_CANVAS_CONFIG, ...m.config, ...pendingConfig.current?.patch }); // unsent edits win over the echo
           break;
         case 'mediaAdded':
           void addMedia(m.srcs, m.position);
@@ -761,6 +761,7 @@ export function App() {
               file: file.data.file,
               target,
               anchor: target ? docStore.get(file.data.file)?.model?.getLineContent(target.start).trim() : undefined,
+              showTitle: configRef.current.showEditorTitleByDefault,
             },
           };
           pendingReveal.current = editor.id;
@@ -781,6 +782,8 @@ export function App() {
           const next = ns.map((n) => (n === node ? ({ ...n, data: { ...n.data, annotation } } as RFNode) : n));
           return isEditor(node) && node.data.annotation === undefined && annotation !== undefined ? makeRoomBelow(next, node) : next;
         }),
+      updateTitle: (id, patch) =>
+        updateNodes((ns) => ns.map((n) => (n.id === id && (isFile(n) || isEditor(n)) ? ({ ...n, data: { ...n.data, ...patch } } as RFNode) : n))),
       updateLink: (id, patch) => {
         setEdges((es) => es.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
         commit();
@@ -816,7 +819,10 @@ export function App() {
         if (isAbsoluteWorkspacePath(src) || !mediaRootRef.current) return '';
         return `${mediaRootRef.current.replace(/\/$/, '')}/${src.split('/').map(encodeURIComponent).join('/')}`;
       },
-      openNodeMenu: (id, x, y, items) => setNodeMenu({ id, at: { x, y }, items }),
+      openNodeMenu: (id, x, y, items) => {
+        setPaneMenu(null);
+        setNodeMenu({ id, at: { x, y }, items });
+      },
       nodeMenuItems: (id) => nodeMenuItemsRef.current(id),
       // fitView's numeric padding shrinks the fitted size to 1 / (1 + padding), so 100 / percent - 1 fills `percent`.
       focusNode: (id) =>
@@ -838,6 +844,7 @@ export function App() {
     [updateNodes],
   );
   const closeNodeMenu = useCallback(() => setNodeMenu(null), []);
+  const closePaneMenu = useCallback(() => setPaneMenu(null), []);
 
   // ---- board nodes (groups, text, notes, media) ----------------------------------------------------
 
@@ -1087,6 +1094,24 @@ export function App() {
   const nodeMenuItemsRef = useRef(nodeMenuItems);
   nodeMenuItemsRef.current = nodeMenuItems;
 
+  /**
+   * Right-click on the empty canvas: show or hide the title of every file or every editor at once. It sets each paper's
+   * own visibility (not a view filter), so single papers can be changed afterwards. Entries that change nothing are disabled.
+   */
+  const paneMenuItems = (): MenuEntries => {
+    const entry = (kind: 'file' | 'editor', show: boolean): HeaderMenuItem => {
+      const fallback = kind === 'file' ? DEFAULT_FILE_SHOW_TITLE : DEFAULT_EDITOR_SHOW_TITLE;
+      const changes = (n: RFNode): n is RFFileNode | RFEditorNode => (isFile(n) || isEditor(n)) && n.type === kind && (n.data.showTitle ?? fallback) !== show;
+      return {
+        icon: show ? 'eye' : 'eye-closed',
+        label: `${show ? 'Show' : 'Hide'} ${kind} titles`,
+        disabled: !nodesRef.current.some(changes),
+        onClick: () => updateNodes((ns) => ns.map((n) => (changes(n) ? ({ ...n, data: { ...n.data, showTitle: show } } as RFNode) : n))),
+      };
+    };
+    return [entry('file', true), entry('editor', true), 'separator', entry('file', false), entry('editor', false)];
+  };
+
   /** Send pasted or dropped image/video files to the host, which stores them and answers with `mediaAdded`. */
   const saveMediaFiles = useCallback(async (files: File[], position: { x: number; y: number }) => {
     for (const f of files) {
@@ -1279,6 +1304,18 @@ export function App() {
         onDrop={onDrop}
         onPointerMove={(e) => (pointer.current = { x: e.clientX, y: e.clientY })}
         onPointerLeave={() => (pointer.current = null)}
+        // Right-drag pans (panOnDrag), so React Flow swallows the pane's contextmenu: a right-click that did not move
+        // opens the canvas menu here instead.
+        onPointerDownCapture={(e) => e.button === 2 && (rightDown.current = { x: e.clientX, y: e.clientY })}
+        onContextMenu={(e) => {
+          const down = rightDown.current;
+          rightDown.current = null;
+          if (!(e.target as HTMLElement).classList.contains('react-flow__pane')) return;
+          e.preventDefault();
+          if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+          setNodeMenu(null);
+          setPaneMenu({ x: e.clientX, y: e.clientY });
+        }}
       >
         <ReactFlow<RFNode, RFEdge>
           nodes={shownNodes}
@@ -1363,6 +1400,7 @@ export function App() {
         {nodeMenu && (
           <MenuPopup anchor={nodeMenu.at} items={[...(nodeMenu.items ?? []), 'separator', ...nodeMenuItems(nodeMenu.id)]} onClose={closeNodeMenu} />
         )}
+        {paneMenu && <MenuPopup anchor={paneMenu} items={paneMenuItems()} onClose={closePaneMenu} />}
         {help && <HelpOverlay onClose={() => setHelp(false)} />}
       </div>
     </WorkspaceContext.Provider>

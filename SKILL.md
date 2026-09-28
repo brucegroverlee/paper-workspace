@@ -44,8 +44,8 @@ Readers must skip kinds they don't recognize.
 
 | `type` | What it is | Own fields |
 |---|---|---|
-| `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?` |
-| `editor` | A live code editor over the whole file, scrolled to a **target** line range. It always lives inside a `file`. | `parent` (**required**, the file node id), `target? {start,end}`, `anchor?`, `annotation?` |
+| `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?`, `title?`, `showTitle?` |
+| `editor` | A live code editor over the whole file, scrolled to a **target** line range. It always lives inside a `file`. | `parent` (**required**, the file node id), `target? {start,end}`, `anchor?`, `annotation?`, `title?`, `showTitle?` |
 | `group` | A titled, colored area. Any box (file, text, note, shape, media, group) can sit inside it. | `title`, `color?`, `textColor?`, `fontSize?`, `fontWeight?`, `titlePosition?`, `strokeColor?`, `strokeWidth?`, `strokeStyle?`, `annotation?` |
 | `shape` | A diagram shape with a label (see the shape list below). | `shape`, `text`, `color?`, `strokeColor?`, `textColor?`, `fontSize?`, `fontWeight?`, `annotation?` |
 | `note` | A sticky note, plain text on a colored square. | `text`, `color?` (background, default `#ffec99`), `textColor?`, `fontSize?` (default 14), `fontWeight?` |
@@ -63,6 +63,10 @@ Field details:
   text to move the target to the right lines. Always set it when you set `target`.
 - **`annotation`** is a small italic caption drawn centered **below** the box. If it is missing there is no caption;
   `""` shows an empty caption. Text and note nodes don't have annotations.
+- **`title`** is the name label above a file or editor's top-left corner (it stays readable when zoomed out). If it is
+  missing, a file shows its base name (`login.ts`) and an editor the trimmed text of its first `target` line (the base
+  name without a target). **`showTitle`** turns the label on or off; it is on by default for both
+  kinds, so only write `"showTitle": false` to hide one.
 - **`text`** in shapes, notes, and text nodes is plain text. `\n` makes a new line, and there is no Markdown.
 - **Colors** are always `#rrggbb`. A shape's `color` can also be `"none"` (outline only). Invalid colors are ignored.
 - **`fontWeight`** is 100–900 (400 regular, 600 semibold, 700 bold). **`fontSize`** is 6–200.

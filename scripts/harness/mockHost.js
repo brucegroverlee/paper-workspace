@@ -69,7 +69,7 @@
     edges: [],
   };
   const settings = { fontFamily: "Consolas, 'Courier New', monospace", fontSize: 14, lineHeight: 19, tabSize: 2 };
-  let config = { minNodeWidth: 50, minNodeHeight: 50, focusPercent: 80, canvasBackground: '#e4e5e8' };
+  let config = { minNodeWidth: 50, minNodeHeight: 50, focusPercent: 80, canvasBackground: '#e4e5e8', showFileTitleByDefault: true, showEditorTitleByDefault: false };
   const log = [];
   const send = (m) => setTimeout(() => window.postMessage(m, '*'), 5);
 

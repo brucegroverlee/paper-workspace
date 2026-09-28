@@ -5,14 +5,16 @@ import type { CanvasConfig, EditorSettings } from '../shared/protocol';
 import { docStore } from './docStore';
 import type { MenuEntries } from './HeaderMenu';
 
-export type FileNodeData = { file: string; annotation?: string };
+/** A file or editor's title label; see the workspace model. */
+export type TitleData = { title?: string; showTitle?: boolean };
+export type FileNodeData = { file: string; annotation?: string } & TitleData;
 export type EditorNodeData = {
   /** Copied from the parent file node for convenience. */
   file: string;
   target?: LineRange;
   anchor?: string;
   annotation?: string;
-};
+} & TitleData;
 
 export type GroupNodeData = {
   title: string;
@@ -67,6 +69,8 @@ export interface WorkspaceActions {
   updateData(id: string, patch: BoardDataPatch): void;
   /** Show (`''` or text) or remove (undefined) the caption below a file, snippet, group, shape or media node. */
   setAnnotation(id: string, annotation: string | undefined): void;
+  /** Rename (undefined = back to the base name) or show/hide a file or editor's title label. */
+  updateTitle(id: string, patch: TitleData): void;
   /** Change a link's look or label. */
   updateLink(id: string, patch: Partial<LinkData>): void;
   /** Swap a link's ends, so its arrow points the other way. */

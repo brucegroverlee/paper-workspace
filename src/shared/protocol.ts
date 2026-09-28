@@ -1,5 +1,5 @@
 // Messages exchanged between the extension host and the canvas webview.
-import type { LineRange, WorkspaceFile, XY } from './workspace';
+import { DEFAULT_CANVAS_BACKGROUND, DEFAULT_FOCUS_PERCENT, DEFAULT_MIN_NODE_SIZE, type LineRange, type WorkspaceFile, type XY } from './workspace';
 import type { DiagnosticJson, LanguageRequest, LanguageResult } from './language';
 
 export interface EditorSettings {
@@ -15,9 +15,22 @@ export interface CanvasConfig {
   minNodeHeight: number;
   /** Percentage of the window a focused node fills. */
   focusPercent: number;
+  /** Title visibility given to new file / editor papers (existing papers keep their own). */
+  showFileTitleByDefault: boolean;
+  showEditorTitleByDefault: boolean;
   /** Canvas background color (`#rrggbb`). */
   canvasBackground: string;
 }
+
+/** Config panel defaults ("Reset to defaults"), also filling fields a host did not send. */
+export const DEFAULT_CANVAS_CONFIG: CanvasConfig = {
+  minNodeWidth: DEFAULT_MIN_NODE_SIZE,
+  minNodeHeight: DEFAULT_MIN_NODE_SIZE,
+  focusPercent: DEFAULT_FOCUS_PERCENT,
+  canvasBackground: DEFAULT_CANVAS_BACKGROUND,
+  showFileTitleByDefault: true,
+  showEditorTitleByDefault: false,
+};
 
 /** A text edit in Monaco coordinates (1-based lines/columns), all relative to the pre-edit text. */
 export interface TextChange {
