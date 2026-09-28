@@ -24,6 +24,7 @@ Both jobs need the file format, so it comes first.
 ```jsonc
 {
   "version": 2,
+  "tags": [ /* optional: this workspace's tags, e.g. { "id": "tag_1", "label": "Entry point", "color": "#b2f2bb" } */ ],
   "nodes": [ /* boxes and editors; array order = stacking order, parents before children */ ],
   "edges": [ /* arrows between any two nodes */ ]
 }
@@ -44,8 +45,8 @@ Readers must skip kinds they don't recognize.
 
 | `type` | What it is | Own fields |
 |---|---|---|
-| `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?`, `title?`, `showTitle?` |
-| `editor` | A live code editor over the whole file, scrolled to a **target** line range. It always lives inside a `file`. | `parent` (**required**, the file node id), `target? {start,end}`, `anchor?`, `annotation?`, `title?`, `showTitle?` |
+| `file` | A paper for one source file. It holds one or more `editor` nodes. | `file` (path), `annotation?`, `title?`, `showTitle?`, `tags?` |
+| `editor` | A live code editor over the whole file, scrolled to a **target** line range. It always lives inside a `file`. | `parent` (**required**, the file node id), `target? {start,end}`, `anchor?`, `annotation?`, `title?`, `showTitle?`, `tags?` |
 | `group` | A titled, colored area. Any box (file, text, note, shape, media, group) can sit inside it. | `title`, `color?`, `textColor?`, `fontSize?`, `fontWeight?`, `titlePosition?`, `strokeColor?`, `strokeWidth?`, `strokeStyle?`, `annotation?` |
 | `shape` | A diagram shape with a label (see the shape list below). | `shape`, `text`, `color?`, `strokeColor?`, `textColor?`, `fontSize?`, `fontWeight?`, `annotation?` |
 | `note` | A sticky note, plain text on a colored square. | `text`, `color?` (background, default `#ffec99`), `textColor?`, `fontSize?` (default 14), `fontWeight?` |
@@ -67,6 +68,15 @@ Field details:
   missing, a file shows its base name (`login.ts`) and an editor the trimmed text of its first `target` line (the base
   name without a target). **`showTitle`** turns the label on or off; it is on by default for both
   kinds, so only write `"showTitle": false` to hide one.
+- **`tags`** on a file or editor is a list of ids from the top-level `tags` array; each is drawn as a colored chip beside the
+  paper (see `tagPlacement`). Tags belong to the workspace: define each once (`id`, `label`, `color`; labels are
+  unique ignoring case) and refer to it from any number of papers. Ids that are not defined are dropped. A file with a
+  single editor shows the file's tags (the editor's join them), like its annotation. The optional top-level
+  **`tagPlacement`** says where chips are drawn: `"right"` (default, beside the paper), `"bottom"`, `"left"`, or
+  `"top"` (on the title row, at the top-right corner). **`"showTags": false`** hides every chip without removing any
+  tag from its paper (omit it to show them).
+- **`customColors`** (top level, optional) is the color picker's "Custom" row for this workspace: `#rrggbb` values,
+  oldest first. It has no effect on how anything is drawn, so leave it out when writing a workspace.
 - **`text`** in shapes, notes, and text nodes is plain text. `\n` makes a new line, and there is no Markdown.
 - **Colors** are always `#rrggbb`. A shape's `color` can also be `"none"` (outline only). Invalid colors are ignored.
 - **`fontWeight`** is 100–900 (400 regular, 600 semibold, 700 bold). **`fontSize`** is 6–200.

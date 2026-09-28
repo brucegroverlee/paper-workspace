@@ -9,6 +9,7 @@ import { languageBadge } from './monaco';
 import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
 import { NodeTitle, useTitleMenuItems } from './NodeTitle';
+import { useTagMenuItem } from './Tags';
 
 /** Smallest size that still contains every visible child editor, as "WxH" (a string keeps the selector stable). */
 function useChildrenExtent(id: string) {
@@ -46,11 +47,13 @@ export const FileNode = memo(function FileNode({ id, data, selected, width }: No
   const missing = !!doc?.missing;
   const targetItems = useTargetMenuItems(single);
   const titleItems = useTitleMenuItems(id, data, DEFAULT_FILE_SHOW_TITLE);
+  const tagItem = useTagMenuItem(id, data);
   const menuItems = (): MenuEntries => [
     ...(missing ? [] : targetItems),
     !missing && { icon: 'add', label: 'Add a snippet editor', onClick: () => ctx.addEditor(id) },
     'separator',
     { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+    tagItem,
     ...titleItems,
   ];
   const openMenu = (e: React.MouseEvent) => {

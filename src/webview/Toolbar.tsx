@@ -45,6 +45,8 @@ export function Toolbar(props: {
   onViewSource(): void;
   minimapOpen: boolean;
   onMinimap(): void;
+  tagsOpen: boolean;
+  onTags(): void;
 }) {
   const rf = useReactFlow();
   const zoom = useStore((s) => s.transform[2]);
@@ -75,6 +77,7 @@ export function Toolbar(props: {
         <ToolButton icon="symbol-misc" label="Shapes — rectangles, flowchart symbols, arrows (S)" active={props.shapesOpen} onClick={props.onShapes} />
       </div>
       <div className="pw-tool-group">
+        <ToolButton icon="tag" label="Tags — rename, recolor or create this workspace's tags" active={props.tagsOpen} onClick={props.onTags} />
         <ToolButton icon="file-code" label="View the workspace file's source" onClick={props.onViewSource} />
         <ToolButton icon="map" label={props.minimapOpen ? 'Hide the minimap' : 'Show the minimap'} active={props.minimapOpen} onClick={props.onMinimap} />
         <ToolButton icon="settings-gear" label="Configuration" active={props.configOpen} onClick={props.onConfig} />
@@ -251,6 +254,7 @@ export function HelpOverlay(props: { onClose(): void }) {
     ['Shapes', 'The shapes button (S) opens the shape library: click a shape to add it, or drag it onto the canvas or into a group; double-click a shape to label it'],
     ['Links', 'Hover a node and drag from a dot on any side onto another node (or its side); select a link to change its color, thickness, line style, path, arrow heads and label; double-click it to write the label; drag an end to reconnect it'],
     ['Copy & paste', 'Ctrl+C / Ctrl+X copy or cut the selected groups, text, notes, shapes and media; Ctrl+V pastes at the pointer (as often as you like); Ctrl+D duplicates'],
+    ['Tags', 'Right-click a file or snippet → Add a tag: pick tags or type a new one; the × on a chip removes it. The tag button in the toolbar edits all of this workspace’s tags'],
     ['Media', 'Toolbar image button, Ctrl+V with an image on the clipboard, or drop image/video files'],
     ['Colors & fonts', 'Select a group, text, note or shape and use the toolbar above it; the canvas background is in the ⚙ configuration panel'],
     ['Resize', 'Select a node and drag its handles (the minimum size is in the ⚙ configuration panel)'],

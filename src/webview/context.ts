@@ -1,20 +1,23 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 import type { Edge, Node } from '@xyflow/react';
-import type { GroupBorderStyle, GroupTitlePosition, LineRange, WorkspaceEdge } from '../shared/workspace';
+import type { GroupBorderStyle, GroupTitlePosition, LineRange, TagPlacement, WorkspaceEdge, WorkspaceTag } from '../shared/workspace';
 import type { CanvasConfig, EditorSettings } from '../shared/protocol';
 import { docStore } from './docStore';
 import type { MenuEntries } from './HeaderMenu';
 
 /** A file or editor's title label; see the workspace model. */
 export type TitleData = { title?: string; showTitle?: boolean };
-export type FileNodeData = { file: string; annotation?: string } & TitleData;
+/** Ids of the workspace tags on a file or editor. */
+export type TagData = { tags?: string[] };
+export type FileNodeData = { file: string; annotation?: string } & TitleData & TagData;
 export type EditorNodeData = {
   /** Copied from the parent file node for convenience. */
   file: string;
   target?: LineRange;
   anchor?: string;
   annotation?: string;
-} & TitleData;
+} & TitleData &
+  TagData;
 
 export type GroupNodeData = {
   title: string;
@@ -71,6 +74,20 @@ export interface WorkspaceActions {
   setAnnotation(id: string, annotation: string | undefined): void;
   /** Rename (undefined = back to the base name) or show/hide a file or editor's title label. */
   updateTitle(id: string, patch: TitleData): void;
+  /** Every tag of this workspace. */
+  tags: WorkspaceTag[];
+  /** Where papers show their tags (a workspace option, set in the tag manager). */
+  tagPlacement: TagPlacement;
+  /** Whether tag chips are drawn (a workspace view option; hiding them keeps every paper's tags). */
+  showTags: boolean;
+  /** The color picker's "Custom" row, shared by every picker of this workspace. */
+  customColors: string[];
+  /** Remember a color picked with the custom picker or the eyedropper (no-op if it is in the grid or already saved). */
+  addCustomColor(color: string): void;
+  /** Set the tags of a file or editor, first adding `created` (new tags made in the picker) to the workspace. */
+  setNodeTags(id: string, tagIds: string[], created?: WorkspaceTag[]): void;
+  /** Open the dialog that picks or creates the tags of a file or editor. */
+  openTagPicker(id: string): void;
   /** Change a link's look or label. */
   updateLink(id: string, patch: Partial<LinkData>): void;
   /** Swap a link's ends, so its arrow points the other way. */

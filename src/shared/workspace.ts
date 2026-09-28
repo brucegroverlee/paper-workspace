@@ -33,6 +33,8 @@ export interface FileNode {
   title?: string;
   /** Whether the title label is shown; undefined = `DEFAULT_FILE_SHOW_TITLE`. */
   showTitle?: boolean;
+  /** Ids of the workspace tags on this paper, in the order they were added; undefined = none. */
+  tags?: string[];
   position: XY;
   width: number;
   height: number;
@@ -59,6 +61,8 @@ export interface EditorNode {
   title?: string;
   /** Whether the title label is shown; undefined = `DEFAULT_EDITOR_SHOW_TITLE`. */
   showTitle?: boolean;
+  /** Tags on this snippet (see FileNode). A combined (single-snippet) node shows the file's tags: the snippet's join them. */
+  tags?: string[];
   /** Relative to the parent file node. */
   position: XY;
   width: number;
@@ -199,8 +203,29 @@ export interface WorkspaceEdge {
   fontWeight?: number;
 }
 
+/** A label that file and editor papers can carry; defined once per workspace (not per user or extension). */
+export interface WorkspaceTag {
+  id: string;
+  label: string;
+  /** Chip background (`#rrggbb`); the label is dark or light, whichever reads best on it. */
+  color: string;
+}
+
+/** Where papers show their tags: on the title row (top-right), or beside the paper on the right, bottom or left. */
+export type TagPlacement = 'top' | 'right' | 'bottom' | 'left';
+export const TAG_PLACEMENTS: readonly TagPlacement[] = ['right', 'bottom', 'left', 'top'];
+export const DEFAULT_TAG_PLACEMENT: TagPlacement = 'right';
+
 export interface WorkspaceFile {
   version: number;
+  /** Every tag of this workspace, including ones no paper uses; undefined = none. */
+  tags?: WorkspaceTag[];
+  /** Where papers show their tags; undefined = `DEFAULT_TAG_PLACEMENT`. */
+  tagPlacement?: TagPlacement;
+  /** `false` = tag chips are hidden on the canvas; papers keep their tags. Undefined = shown. */
+  showTags?: boolean;
+  /** Colors added in the color picker's "Custom" row (`#rrggbb`, oldest first); undefined = none. */
+  customColors?: string[];
   nodes: WorkspaceNode[];
   edges: WorkspaceEdge[];
 }
@@ -273,7 +298,28 @@ export const PALETTE = {
   dark: ['#2b2f36', '#3d4450', '#6b2f2f', '#6e4428', '#6b5a24', '#2d5236', '#27405f', '#46315f'],
   light: ['#ffffff', '#e5e5e5', '#ffc9c9', '#ffd6a5', '#ffec99', '#b2f2bb', '#c5e3ff', '#e5dbff'],
 };
-const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
+/**
+ * The color picker's grid (see the webview's ColorPalette): greys, bright hues, then six rows of shades from light to
+ * dark. Every row has one color per column.
+ */
+export const COLOR_GRID: readonly (readonly string[])[] = [
+  ['#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff'],
+  ['#980000', '#ff0000', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#4a86e8', '#0000ff', '#9900ff', '#ff00ff'],
+  ['#e6b8af', '#f4cccc', '#fce5cd', '#fff2cc', '#d9ead3', '#d0e0e3', '#c9daf8', '#cfe2f3', '#d9d2e9', '#ead1dc'],
+  ['#dd7e6b', '#ea9999', '#f9cb9c', '#ffe599', '#b6d7a8', '#a2c4c9', '#a4c2f4', '#9fc5e8', '#b4a7d6', '#d5a6bd'],
+  ['#cc4125', '#e06666', '#f6b26b', '#ffd966', '#93c47d', '#76a5af', '#6d9eeb', '#6fa8dc', '#8e7cc3', '#c27ba0'],
+  ['#a61c00', '#cc0000', '#e69138', '#f1c232', '#6aa84f', '#45818e', '#3c78d8', '#3d85c6', '#674ea7', '#a64d79'],
+  ['#85200c', '#990000', '#b45f06', '#bf9000', '#38761d', '#134f5c', '#1155cc', '#0b5394', '#351c75', '#741b47'],
+  ['#5b0f00', '#660000', '#783f04', '#7f6000', '#274e13', '#0c343d', '#1c4587', '#073763', '#20124d', '#4c1130'],
+];
+/** Most custom colors a workspace remembers (the oldest are dropped). */
+export const CUSTOM_COLORS_MAX = 20;
+/** Colors new tags take in turn: a soft row of the grid, readable with dark text. */
+export const TAG_COLORS = COLOR_GRID[3];
+export const TAG_LABEL_MAX = 40;
+/** Color of the `index`-th tag created, so consecutive new tags are easy to tell apart. */
+export const tagColorFor = (index: number) => TAG_COLORS[((index % TAG_COLORS.length) + TAG_COLORS.length) % TAG_COLORS.length];
+const IMAGE_EXTS =['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
 const VIDEO_EXTS = ['mp4', 'webm', 'ogg', 'mov'];
 export const MEDIA_EXTS = [...IMAGE_EXTS, ...VIDEO_EXTS];
 const MIN_INITIAL_EDITOR_HEIGHT = 150;
@@ -437,6 +483,13 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
   if (!raw || typeof raw !== 'object') return { workspace: emptyWorkspace(), error: 'Workspace file must be a JSON object' };
   const obj = raw as Record<string, unknown>;
   const rawNodes = Array.isArray(obj.nodes) ? obj.nodes : [];
+  const tags = parseTags(obj.tags);
+  const tagIds = new Set(tags.map((t) => t.id));
+  // Known tag ids only, each once; undefined when none are left.
+  const nodeTags = (v: unknown) => {
+    const ids = Array.isArray(v) ? [...new Set(v.filter((t): t is string => typeof t === 'string' && tagIds.has(t)))] : [];
+    return ids.length ? ids : undefined;
+  };
 
   const files: FileNode[] = [];
   const editors: EditorNode[] = [];
@@ -455,7 +508,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
       height: Math.max(NODE_SIZE_FLOOR, num(n.height, d.height)),
     });
     if (n.type === 'file' && typeof n.file === 'string') {
-      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, title, showTitle: showTitle(DEFAULT_FILE_SHOW_TITLE), width: num(n.width, 0), height: num(n.height, 0) };
+      const f: FileNode = { ...box, type: 'file', file: n.file, annotation, title, showTitle: showTitle(DEFAULT_FILE_SHOW_TITLE), tags: nodeTags(n.tags), width: num(n.width, 0), height: num(n.height, 0) };
       files.push(f);
       boxes.push(f);
     } else if (n.type === 'group') {
@@ -518,6 +571,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
         annotation,
         title,
         showTitle: showTitle(DEFAULT_EDITOR_SHOW_TITLE),
+        tags: nodeTags(n.tags),
         position: xy(n.position, { x: FILE_PADDING, y: FILE_HEADER_HEIGHT }),
         width: Math.max(NODE_SIZE_FLOOR, num(n.width, DEFAULT_EDITOR_WIDTH)),
         height: Math.max(NODE_SIZE_FLOOR, num(n.height, DEFAULT_EDITOR_HEIGHT)),
@@ -564,7 +618,25 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
     if (!e || typeof e !== 'object' || typeof e.id !== 'string' || !ids.has(e.source) || !ids.has(e.target)) continue;
     edges.push(parseEdge(e));
   }
-  return { workspace: { version: WORKSPACE_VERSION, nodes, edges } };
+  const customColors = [...new Set((Array.isArray(obj.customColors) ? obj.customColors : []).map(color).filter((c): c is string => !!c))].slice(-CUSTOM_COLORS_MAX);
+  const tagPlacement = obj.tagPlacement === DEFAULT_TAG_PLACEMENT ? undefined : oneOf(TAG_PLACEMENTS, obj.tagPlacement);
+  return { workspace: { version: WORKSPACE_VERSION, ...(tags.length ? { tags } : {}), ...(tagPlacement ? { tagPlacement } : {}), ...(obj.showTags === false ? { showTags: false } : {}), ...(customColors.length ? { customColors } : {}), nodes, edges } };
+}
+
+/** Tag definitions with an id and a label; ids and labels (ignoring case) are unique, the first one wins. */
+function parseTags(v: unknown): WorkspaceTag[] {
+  const out: WorkspaceTag[] = [];
+  const ids = new Set<string>();
+  const labels = new Set<string>();
+  for (const t of Array.isArray(v) ? v : []) {
+    if (!t || typeof t !== 'object' || typeof t.id !== 'string' || !t.id || typeof t.label !== 'string') continue;
+    const label = t.label.trim().slice(0, TAG_LABEL_MAX);
+    if (!label || ids.has(t.id) || labels.has(label.toLowerCase())) continue;
+    ids.add(t.id);
+    labels.add(label.toLowerCase());
+    out.push({ id: t.id, label, color: color(t.color) ?? tagColorFor(out.length) });
+  }
+  return out;
 }
 
 function oneOf<T extends string>(values: readonly T[], v: unknown): T | undefined {
@@ -668,12 +740,17 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
     ...(n.title ? { title: n.title } : {}),
     ...(n.showTitle !== undefined && n.showTitle !== fallback ? { showTitle: n.showTitle } : {}),
   });
+  const tags = (n: { tags?: string[] }) => (n.tags?.length ? { tags: [...n.tags] } : {});
   const out = {
     version: WORKSPACE_VERSION,
+    ...(workspace.tags?.length ? { tags: workspace.tags.map((t) => ({ id: t.id, label: t.label, color: t.color })) } : {}),
+    ...(workspace.tagPlacement && workspace.tagPlacement !== DEFAULT_TAG_PLACEMENT ? { tagPlacement: workspace.tagPlacement } : {}),
+    ...(workspace.showTags === false ? { showTags: false } : {}),
+    ...(workspace.customColors?.length ? { customColors: [...workspace.customColors] } : {}),
     nodes: parentsFirst(workspace.nodes, (n) => n.parent).map((n) => {
       switch (n.type) {
         case 'file':
-          return { ...head(n), file: n.file, ...annotation(n), ...title(n, DEFAULT_FILE_SHOW_TITLE), ...rect(n) };
+          return { ...head(n), file: n.file, ...annotation(n), ...title(n, DEFAULT_FILE_SHOW_TITLE), ...tags(n), ...rect(n) };
         case 'group':
           return {
             ...head(n),
@@ -724,6 +801,7 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
             ...(n.target && n.anchor !== undefined ? { anchor: n.anchor } : {}),
             ...annotation(n),
             ...title(n, DEFAULT_EDITOR_SHOW_TITLE),
+            ...tags(n),
             ...rect(n),
           };
       }

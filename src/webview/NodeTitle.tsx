@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@xyflow/react';
-import { useWorkspace, type TitleData } from './context';
+import { useWorkspace, type TagData, type TitleData } from './context';
 import type { HeaderMenuItem } from './HeaderMenu';
+import { NodeTags, resolveTags } from './Tags';
 
 const zoomSelector = (s: { transform: [number, number, number] }) => s.transform[2];
 
@@ -36,9 +37,14 @@ export function useTitleMenuItems(id: string, data: TitleData, defaultShown: boo
  * at any zoom, so it stays readable when zoomed far out, and is cut to the node's width. Double-click renames it
  * (an empty name goes back to the default text); dragging it moves the node.
  */
-/** `fallback` is the text shown while the title was not renamed (a file's base name, a snippet's first target line). */
-export function NodeTitle(props: { id: string; data: TitleData; fallback: string; width: number; defaultShown: boolean }) {
+/**
+ * `fallback` is the text shown while the title was not renamed (a file's base name, a snippet's first target line).
+ * The paper's tags go where the workspace's tag placement says: on this row, right-aligned (wrapping upwards when they
+ * don't fit, also shown when the title is hidden), or beside the paper on its right, bottom or left.
+ */
+export function NodeTitle(props: { id: string; data: TitleData & TagData; fallback: string; width: number; defaultShown: boolean }) {
   const { id, data } = props;
+  const ctx = useWorkspace();
   const zoom = useStore(zoomSelector);
   const [editing, setEditing] = useState(() => editTitleOnMount.delete(id));
   useEffect(() => {
@@ -50,22 +56,42 @@ export function NodeTitle(props: { id: string; data: TitleData; fallback: string
     window.addEventListener('pw-edit-title', onRequest);
     return () => window.removeEventListener('pw-edit-title', onRequest);
   }, [id]);
-  if (!(data.showTitle ?? props.defaultShown)) return null;
+  const shown = data.showTitle ?? props.defaultShown;
+  // Hidden tags stay on the paper, they are just not drawn.
+  const tags = ctx.showTags ? resolveTags(ctx.tags, data.tags) : [];
+  const onRow = ctx.tagPlacement === 'top';
+  // Counter the canvas zoom so the labels keep their screen size; widths in canvas units stay the node's.
+  const scale = `scale(${1 / zoom})`;
+  const side = !onRow && tags.length > 0 && (
+    <div
+      className={`pw-side-tags ${ctx.tagPlacement}`}
+      style={{ transform: scale, ...(ctx.tagPlacement === 'bottom' ? { width: Math.max(0, props.width * zoom) } : {}) }}
+    >
+      <NodeTags id={id} tags={tags} />
+    </div>
+  );
+  if (!shown && !(onRow && tags.length)) return side || null;
   const { fallback } = props;
   const text = data.title ?? fallback;
   return (
-    <div
-      className={`pw-node-title${editing ? ' editing' : ''}`}
-      // Counter the canvas zoom so the label keeps its screen size; its width in canvas units stays the node's.
-      style={{ transform: `scale(${1 / zoom})`, maxWidth: Math.max(0, props.width * zoom) }}
-      title={editing ? undefined : `${text} (double-click to rename)`}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        setEditing(true);
-      }}
-    >
-      {editing ? <TitleInput id={id} value={text} fallback={fallback} onDone={() => setEditing(false)} /> : text}
-    </div>
+    <>
+      <div className="pw-node-label-row" style={{ transform: scale, width: Math.max(0, props.width * zoom) }}>
+        {shown && (
+          <div
+            className={`pw-node-title${editing ? ' editing' : ''}`}
+            title={editing ? undefined : `${text} (double-click to rename)`}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setEditing(true);
+            }}
+          >
+            {editing ? <TitleInput id={id} value={text} fallback={fallback} onDone={() => setEditing(false)} /> : text}
+          </div>
+        )}
+        {onRow && <NodeTags id={id} tags={tags} />}
+      </div>
+      {side}
+    </>
   );
 }
 

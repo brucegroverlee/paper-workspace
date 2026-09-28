@@ -49,6 +49,11 @@ import {
   type WorkspaceEdge,
   type WorkspaceFile,
   type WorkspaceNode,
+  type WorkspaceTag,
+  DEFAULT_TAG_PLACEMENT,
+  type TagPlacement,
+  COLOR_GRID,
+  CUSTOM_COLORS_MAX,
 } from '../shared/workspace';
 import { isAbsoluteWorkspacePath } from '../shared/paths';
 import { DEFAULT_CANVAS_CONFIG, type CanvasConfig, type EditorSettings, type HostToWebview } from '../shared/protocol';
@@ -67,6 +72,7 @@ import { ConfigPanel, HelpOverlay, Toolbar, clearOfToolbar, ZOOM_LIMITS, type Cr
 import { ResizeBadge } from './ResizeBadge';
 import { ShapesPanel } from './ShapesPanel';
 import { SHAPE_DRAG_TYPE, shapeDef } from './shapes';
+import { TagManagerDialog, TagPickerDialog, ZoomCssVar } from './Tags';
 import { host, onHostMessage } from './vscodeApi';
 
 const nodeTypes = { file: FileNode, editor: EditorNode, group: GroupNode, text: TextNode, note: TextNode, media: MediaNode, shape: ShapeNode };
@@ -114,7 +120,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
     };
     if (n.type === 'file') {
       fileById.set(n.id, n.file);
-      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation, title: n.title, showTitle: n.showTitle } });
+      out.push({ ...base, type: 'file', data: { file: n.file, annotation: n.annotation, title: n.title, showTitle: n.showTitle, tags: n.tags } });
     } else if (n.type === 'group') out.push({ ...base, type: 'group', data: { title: n.title, color: n.color, textColor: n.textColor, fontSize: n.fontSize, fontWeight: n.fontWeight, titlePosition: n.titlePosition, strokeColor: n.strokeColor, strokeWidth: n.strokeWidth, strokeStyle: n.strokeStyle, annotation: n.annotation } });
     else if (n.type === 'media') out.push({ ...base, type: 'media', data: { src: n.src, annotation: n.annotation } });
     else if (n.type === 'shape')
@@ -138,7 +144,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
       measured: { width: n.width, height: n.height },
       dragHandle: EDITOR_DRAG_HANDLE,
       selected: selected.has(n.id),
-      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation, title: n.title, showTitle: n.showTitle },
+      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation, title: n.title, showTitle: n.showTitle, tags: n.tags },
     });
   }
   return normalizeLayout(out);
@@ -171,6 +177,11 @@ function normalizeLayout(ns: RFNode[]): RFNode[] {
         const joined = [file.data.annotation, data.annotation].filter((a) => a).join('\n');
         file = { ...file, data: { ...file.data, annotation: joined } };
         data = { ...data, annotation: undefined };
+      }
+      if (data.tags?.length) {
+        // Likewise its tags: the combined node shows the file's.
+        file = { ...file, data: { ...file.data, tags: [...new Set([...(file.data.tags ?? []), ...data.tags])] } };
+        data = { ...data, tags: undefined };
       }
       const w = file.width ?? DEFAULT_EDITOR_WIDTH;
       const h = file.height ?? DEFAULT_EDITOR_HEIGHT;
@@ -296,7 +307,7 @@ function nodeSideAt(rf: ReturnType<typeof useReactFlow<RFNode>>, event: MouseEve
   return { id: node.id, side: nearestSide({ ...node.internals.positionAbsolute, width, height }, p) };
 }
 
-function toWorkspace(nodes: RFNode[], edges: RFEdge[]): WorkspaceFile {
+function toWorkspace(nodes: RFNode[], edges: RFEdge[], { tags, tagPlacement, showTags, customColors }: WorkspaceOptions): WorkspaceFile {
   nodes = normalizeLayout(nodes); // sync embedded editors with their (possibly resized) file
   const out: WorkspaceNode[] = nodes.map((n) => {
     const rect = {
@@ -308,9 +319,9 @@ function toWorkspace(nodes: RFNode[], edges: RFEdge[]): WorkspaceFile {
     const parent = n.parentId !== undefined ? { parent: n.parentId } : {};
     switch (n.type) {
       case 'editor':
-        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle };
+        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, tags: n.data.tags };
       case 'file':
-        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle };
+        return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, tags: n.data.tags };
       case 'group':
         return { ...rect, ...parent, type: 'group', ...n.data };
       case 'shape':
@@ -321,8 +332,19 @@ function toWorkspace(nodes: RFNode[], edges: RFEdge[]): WorkspaceFile {
         return { ...rect, ...parent, type: n.type, text: n.data.text, color: n.data.color, textColor: n.data.textColor, fontSize: n.data.fontSize, fontWeight: n.data.fontWeight };
     }
   });
-  return { version: WORKSPACE_VERSION, nodes: out, edges: toWorkspaceEdges(nodes, edges) };
+  return {
+    version: WORKSPACE_VERSION,
+    ...(tags.length ? { tags } : {}),
+    ...(tagPlacement !== DEFAULT_TAG_PLACEMENT ? { tagPlacement } : {}),
+    ...(!showTags ? { showTags: false } : {}),
+    ...(customColors.length ? { customColors } : {}),
+    nodes: out,
+    edges: toWorkspaceEdges(nodes, edges),
+  };
 }
+
+/** Workspace-wide state besides nodes and links: tags (definitions, placement, visibility) and the picker's custom colors. */
+type WorkspaceOptions = { tags: WorkspaceTag[]; tagPlacement: TagPlacement; showTags: boolean; customColors: string[] };
 
 /** Keep the docStore's range trackers in sync with the editors that have a target. */
 function syncTrackers(nodes: RFNode[], previous: RFNode[]) {
@@ -402,9 +424,10 @@ function visibleNodeId(nodes: RFNode[], id: string) {
   return n?.hidden && n.parentId ? n.parentId : id;
 }
 
+/** Typing goes there, not to canvas shortcuts (dialogs count as a whole: their buttons take keys too). */
 function isEditableTarget(t: EventTarget | null) {
   const el = t as HTMLElement | null;
-  return !!el?.closest?.('input, textarea, [contenteditable="true"], .monaco-editor');
+  return !!el?.closest?.('input, textarea, [contenteditable="true"], .monaco-editor, .pw-dialog, .pw-color-popup');
 }
 
 export function App() {
@@ -427,6 +450,17 @@ export function App() {
   /** Where the right button went down, to tell a right-click from a right-drag pan. */
   const rightDown = useRef<{ x: number; y: number } | null>(null);
   const [, setThemeTick] = useState(0);
+  /** The workspace's tag definitions (papers hold their ids). */
+  const [workspaceOptions, setWorkspaceOptionsState] = useState<WorkspaceOptions>({ tags: [], tagPlacement: DEFAULT_TAG_PLACEMENT, showTags: true, customColors: [] });
+  const { tags, tagPlacement, showTags, customColors } = workspaceOptions;
+  const optionsRef = useRef(workspaceOptions);
+  const setWorkspaceOptions = useCallback((patch: Partial<WorkspaceOptions>) => {
+    optionsRef.current = { ...optionsRef.current, ...patch }; // before the commit that saves them
+    setWorkspaceOptionsState(optionsRef.current);
+  }, []);
+  const setTags = useCallback((next: WorkspaceTag[]) => setWorkspaceOptions({ tags: next }), [setWorkspaceOptions]);
+  /** Tag dialogs: the picker of one paper, or the workspace's tag manager. */
+  const [tagDialog, setTagDialog] = useState<{ kind: 'picker'; id: string } | { kind: 'manager' } | null>(null);
 
   const [edges, setEdges, onEdgesChangeBase] = useEdgesState<RFEdge>([]);
   const nodesRef = useRef(nodes);
@@ -452,7 +486,7 @@ export function App() {
     commitTimer.current = setTimeout(() => {
       // Never overwrite a .workspace file we could not parse; the user may be fixing it by hand.
       if (readOnlyRef.current) return;
-      host.postMessage({ type: 'update', workspace: toWorkspace(nodesRef.current, edgesRef.current) });
+      host.postMessage({ type: 'update', workspace: toWorkspace(nodesRef.current, edgesRef.current, optionsRef.current) });
     }, COMMIT_DELAY);
   }, []);
 
@@ -473,10 +507,11 @@ export function App() {
     (workspace: WorkspaceFile, error?: string) => {
       readOnlyRef.current = !!error;
       setWorkspaceError(error);
+      setWorkspaceOptions({ tags: workspace.tags ?? [], tagPlacement: workspace.tagPlacement ?? DEFAULT_TAG_PLACEMENT, showTags: workspace.showTags !== false, customColors: workspace.customColors ?? [] });
       setEdges((prev) => toRFEdges(workspace, prev));
       updateNodes((prev) => toRFNodes(workspace, prev), false);
     },
-    [setEdges, updateNodes],
+    [setEdges, setWorkspaceOptions, updateNodes],
   );
 
   // ---- host messages -----------------------------------------------------------------------------
@@ -784,6 +819,22 @@ export function App() {
         }),
       updateTitle: (id, patch) =>
         updateNodes((ns) => ns.map((n) => (n.id === id && (isFile(n) || isEditor(n)) ? ({ ...n, data: { ...n.data, ...patch } } as RFNode) : n))),
+      tags,
+      tagPlacement,
+      showTags,
+      customColors,
+      addCustomColor: (color) => {
+        const saved = optionsRef.current.customColors;
+        if (!/^#[0-9a-f]{6}$/.test(color) || saved.includes(color) || COLOR_GRID.some((row) => row.includes(color))) return;
+        setWorkspaceOptions({ customColors: [...saved, color].slice(-CUSTOM_COLORS_MAX) });
+        commit();
+      },
+      setNodeTags: (id, tagIds, created) => {
+        if (created?.length) setTags([...optionsRef.current.tags, ...created]);
+        const next = tagIds.length ? [...new Set(tagIds)] : undefined;
+        updateNodes((ns) => ns.map((n) => (n.id === id && (isFile(n) || isEditor(n)) ? ({ ...n, data: { ...n.data, tags: next } } as RFNode) : n)));
+      },
+      openTagPicker: (id) => setTagDialog({ kind: 'picker', id }),
       updateLink: (id, patch) => {
         setEdges((es) => es.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
         commit();
@@ -832,7 +883,7 @@ export function App() {
       relinkFile: (file) => host.postMessage({ type: 'relinkFile', file }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings, config, rf, setNodes, setEdges, commit, updateNodes, revealInExplorer]);
+  }, [settings, config, tags, tagPlacement, showTags, customColors, rf, setNodes, setEdges, setTags, commit, updateNodes, revealInExplorer]);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
 
@@ -1109,7 +1160,18 @@ export function App() {
         onClick: () => updateNodes((ns) => ns.map((n) => (changes(n) ? ({ ...n, data: { ...n.data, showTitle: show } } as RFNode) : n))),
       };
     };
-    return [entry('file', true), entry('editor', true), 'separator', entry('file', false), entry('editor', false)];
+    const { showTags } = optionsRef.current;
+    // Only a view switch: papers keep their tags while they are hidden.
+    const tagsEntry: HeaderMenuItem = {
+      icon: showTags ? 'eye-closed' : 'eye',
+      label: showTags ? 'Hide tags' : 'Show tags',
+      disabled: !nodesRef.current.some((n) => (isFile(n) || isEditor(n)) && n.data.tags?.length),
+      onClick: () => {
+        setWorkspaceOptions({ showTags: !showTags });
+        commit();
+      },
+    };
+    return [entry('file', true), entry('editor', true), 'separator', entry('file', false), entry('editor', false), 'separator', tagsEntry];
   };
 
   /** Send pasted or dropped image/video files to the host, which stores them and answers with `mediaAdded`. */
@@ -1241,6 +1303,32 @@ export function App() {
     };
   }, []);
 
+  // ---- tags --------------------------------------------------------------------------------------
+
+  /** Replace the workspace's tags and their placement (tag manager); deleted tags come off every paper. */
+  const replaceTags = useCallback(
+    (next: WorkspaceTag[], placement: TagPlacement) => {
+      const kept = new Set(next.map((t) => t.id));
+      setWorkspaceOptions({ tags: next, tagPlacement: placement });
+      updateNodes((ns) =>
+        ns.map((n) => {
+          if (!(isFile(n) || isEditor(n)) || !n.data.tags?.some((t) => !kept.has(t))) return n;
+          const left = n.data.tags.filter((t) => kept.has(t));
+          return { ...n, data: { ...n.data, tags: left.length ? left : undefined } } as RFNode;
+        }),
+      );
+    },
+    [setWorkspaceOptions, updateNodes],
+  );
+
+  /** How many papers carry each tag. */
+  const tagUsage = () => {
+    const usage = new Map<string, number>();
+    for (const n of nodesRef.current) if (isFile(n) || isEditor(n)) for (const t of n.data.tags ?? []) usage.set(t, (usage.get(t) ?? 0) + 1);
+    return usage;
+  };
+  const taggedNode = tagDialog?.kind === 'picker' ? nodes.find((n): n is RFFileNode | RFEditorNode => n.id === tagDialog.id && (isFile(n) || isEditor(n))) : undefined;
+
   // ---- viewport ----------------------------------------------------------------------------------
 
   const toggleMinimap = useCallback(() => {
@@ -1356,7 +1444,7 @@ export function App() {
           selectionOnDrag={!hand}
           nodesDraggable={!hand}
           elementsSelectable={!hand}
-          deleteKeyCode={['Delete', 'Backspace']}
+          deleteKeyCode={tagDialog ? null : ['Delete', 'Backspace']}
           multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
           proOptions={{ hideAttribution: true }}
           colorMode={document.body.classList.contains('vscode-light') ? 'light' : 'dark'}
@@ -1364,6 +1452,7 @@ export function App() {
           <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} />
           {minimap && <MiniMap pannable zoomable position="bottom-right" nodeBorderRadius={8} />}
           {resizingId && <ResizeBadge id={resizingId} />}
+          <ZoomCssVar />
         </ReactFlow>
         <Toolbar
           tool={tool}
@@ -1377,6 +1466,8 @@ export function App() {
           onViewSource={() => host.postMessage({ type: 'viewSource' })}
           minimapOpen={minimap}
           onMinimap={toggleMinimap}
+          tagsOpen={tagDialog?.kind === 'manager'}
+          onTags={() => setTagDialog((d) => (d?.kind === 'manager' ? null : { kind: 'manager' }))}
         />
         {panel === 'config' && <ConfigPanel config={config} onChange={changeConfig} onClose={() => setPanel(null)} />}
         {panel === 'shapes' && <ShapesPanel onAdd={(shape) => addShape(shape)} onClose={() => setPanel(null)} />}
@@ -1402,6 +1493,30 @@ export function App() {
         )}
         {paneMenu && <MenuPopup anchor={paneMenu} items={paneMenuItems()} onClose={closePaneMenu} />}
         {help && <HelpOverlay onClose={() => setHelp(false)} />}
+        {taggedNode && (
+          <TagPickerDialog
+            key={taggedNode.id}
+            tags={tags}
+            selected={taggedNode.data.tags ?? []}
+            onSave={(ids, created) => {
+              setTagDialog(null);
+              actions.setNodeTags(taggedNode.id, ids, created);
+            }}
+            onClose={() => setTagDialog(null)}
+          />
+        )}
+        {tagDialog?.kind === 'manager' && (
+          <TagManagerDialog
+            tags={tags}
+            placement={tagPlacement}
+            usage={tagUsage()}
+            onSave={(next, placement) => {
+              setTagDialog(null);
+              replaceTags(next, placement);
+            }}
+            onClose={() => setTagDialog(null)}
+          />
+        )}
       </div>
     </WorkspaceContext.Provider>
   );

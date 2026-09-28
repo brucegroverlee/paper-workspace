@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ANNOTATION_SPACE,
+  CUSTOM_COLORS_MAX,
   EDITOR_GAP,
   FILE_HEADER_HEIGHT,
   FILE_PADDING,
@@ -169,6 +170,83 @@ describe('parseWorkspace / serializeWorkspace', () => {
     expect(byId.e2).toMatchObject({ title: 'Parser', showTitle: false });
     const text = serializeWorkspace(workspace);
     expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
+  });
+
+  it('tags: defined per workspace, referenced by id from files and editors; bad or unknown entries are dropped', () => {
+    const { workspace } = parseWorkspace(
+      JSON.stringify({
+        tags: [
+          { id: 'tag1', label: ' Bug ', color: '#FFC9C9' },
+          { id: 'tag2', label: 'Todo', color: 'red' }, // invalid color: gets a palette color
+          { id: 'tag3', label: 'bug' }, // same label as tag1 (ignoring case)
+          { id: 'tag1', label: 'Again' }, // same id
+          { id: 'tag4', label: '   ' },
+          { label: 'No id' },
+          { id: 'tag5', label: 'Unused', color: '#27405f' },
+        ],
+        nodes: [
+          { id: 'f1', type: 'file', file: 'src/a.ts', tags: ['tag2', 'tag1', 'tag2', 'tag3', 42] },
+          { id: 'e1', type: 'editor', parent: 'f1', tags: ['nope'] },
+          { id: 'e2', type: 'editor', parent: 'f1', tags: ['tag5'] },
+          { id: 'g1', type: 'group', title: 'G', tags: ['tag1'] },
+        ],
+      }),
+    );
+    expect(workspace.tags?.map((t) => [t.id, t.label])).toEqual([
+      ['tag1', 'Bug'],
+      ['tag2', 'Todo'],
+      ['tag5', 'Unused'],
+    ]);
+    expect(workspace.tags![0].color).toBe('#ffc9c9');
+    expect(workspace.tags![1].color).toMatch(/^#[0-9a-f]{6}$/);
+    const byId = Object.fromEntries(workspace.nodes.map((n) => [n.id, n]));
+    expect(byId.f1).toMatchObject({ tags: ['tag2', 'tag1'] });
+    expect(byId.e1).not.toHaveProperty('tags', expect.anything());
+    expect(byId.e2).toMatchObject({ tags: ['tag5'] });
+
+    const text = serializeWorkspace(workspace);
+    const saved = JSON.parse(text);
+    expect(Object.keys(saved)).toEqual(['version', 'tags', 'nodes', 'edges']);
+    const savedById = Object.fromEntries(saved.nodes.map((n: { id: string }) => [n.id, n]));
+    expect(savedById.e1).not.toHaveProperty('tags');
+    expect(savedById.g1).not.toHaveProperty('tags'); // only files and editors carry tags
+    expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
+    // No tags at all: nothing is written.
+    expect(JSON.parse(serializeWorkspace(sample))).not.toHaveProperty('tags');
+  });
+
+  it('tag placement: saved only when not the default (right); unknown values fall back to it', () => {
+    const placement = (v: unknown) => parseWorkspace(JSON.stringify({ tagPlacement: v, nodes: [] })).workspace.tagPlacement;
+    expect(placement('bottom')).toBe('bottom');
+    expect(placement('top')).toBe('top');
+    expect(placement('right')).toBeUndefined();
+    expect(placement('middle')).toBeUndefined();
+    expect(JSON.parse(serializeWorkspace({ ...emptyWorkspace(), tagPlacement: 'left' })).tagPlacement).toBe('left');
+    expect(JSON.parse(serializeWorkspace({ ...emptyWorkspace(), tagPlacement: 'right' }))).not.toHaveProperty('tagPlacement');
+  });
+
+  it('custom colors: valid, lowercase and unique, only the newest are kept, left out when empty', () => {
+    const many = Array.from({ length: CUSTOM_COLORS_MAX + 5 }, (_, i) => `#0000${(i + 16).toString(16)}`);
+    const parse = (v: unknown) => parseWorkspace(JSON.stringify({ customColors: v, nodes: [] })).workspace.customColors;
+    expect(parse(['#AABBCC', 'red', '#aabbcc', 12, '#123456'])).toEqual(['#aabbcc', '#123456']);
+    expect(parse(many)).toEqual(many.slice(-CUSTOM_COLORS_MAX));
+    expect(parse([])).toBeUndefined();
+    expect(JSON.parse(serializeWorkspace({ ...emptyWorkspace(), customColors: ['#123456'] })).customColors).toEqual(['#123456']);
+    expect(JSON.parse(serializeWorkspace({ ...emptyWorkspace(), customColors: [] }))).not.toHaveProperty('customColors');
+  });
+
+  it('hidden tags: only `showTags: false` is saved, and papers keep their tags while hidden', () => {
+    const text = JSON.stringify({
+      showTags: false,
+      tags: [{ id: 't1', label: 'Bug', color: '#ffc9c9' }],
+      nodes: [{ id: 'f1', type: 'file', file: 'a.ts', tags: ['t1'] }, { id: 'e1', type: 'editor', parent: 'f1' }],
+    });
+    const { workspace } = parseWorkspace(text);
+    expect(workspace.showTags).toBe(false);
+    expect(workspace.nodes.find(isFileNode)!.tags).toEqual(['t1']);
+    expect(JSON.parse(serializeWorkspace(workspace))).toMatchObject({ showTags: false });
+    expect(parseWorkspace(JSON.stringify({ showTags: true, nodes: [] })).workspace).not.toHaveProperty('showTags');
+    expect(JSON.parse(serializeWorkspace({ ...workspace, showTags: true }))).not.toHaveProperty('showTags');
   });
 
   it('snippet annotations: saved, and their caption space counts in the file size and the next snippet slot', () => {

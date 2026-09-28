@@ -11,6 +11,7 @@ import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
 import { HeaderMenu, type HeaderMenuItem, type MenuEntries } from './HeaderMenu';
 import { NodeTitle, useTitleMenuItems } from './NodeTitle';
+import { useTagMenuItem } from './Tags';
 
 /** Below this canvas zoom, editors render as a static preview instead of a live Monaco instance. */
 const LIVE_EDITOR_MIN_ZOOM = 0.35;
@@ -91,10 +92,12 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
   const toggleAnnotation = useToggleAnnotation(id, data.annotation);
   const targetItems = useTargetMenuItems({ id, data });
   const titleItems = useTitleMenuItems(id, data, DEFAULT_EDITOR_SHOW_TITLE);
+  const tagItem = useTagMenuItem(id, data);
   const menuItems = (): MenuEntries => [
     ...(missing ? [] : targetItems),
     'separator',
     { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+    tagItem,
     ...titleItems,
   ];
   const openMenu = (e: React.MouseEvent) => {
