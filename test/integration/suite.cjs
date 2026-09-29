@@ -233,6 +233,21 @@ exports.run = async function run() {
     assert.ok(!fs.existsSync(vscode.Uri.joinPath(pw, 'media', 'shared-2').fsPath));
   });
 
+  await step('duplicate copies owned media into its own folder and keeps repository files referenced', async () => {
+    const pw = vscode.Uri.joinPath(ws, '.paperworkspace');
+    await vscode.commands.executeCommand('paperWorkspace.duplicateWorkspace', vscode.Uri.joinPath(pw, 'copy.workspace'), 'twin');
+    const twin = JSON.parse(fs.readFileSync(vscode.Uri.joinPath(pw, 'twin.workspace').fsPath, 'utf8'));
+    const srcOf = (id) => twin.nodes.find((n) => n.id === id).src;
+    assert.equal(srcOf('m1'), '.paperworkspace/media/twin/shot.png');
+    assert.equal(fs.readFileSync(vscode.Uri.joinPath(pw, 'media', 'twin', 'shot.png').fsPath).toString(), 'fake-png-bytes');
+    assert.equal(srcOf('m2'), 'docs/diagram.svg');
+    const original = JSON.parse(fs.readFileSync(vscode.Uri.joinPath(pw, 'copy.workspace').fsPath, 'utf8'));
+    assert.equal(original.nodes.find((n) => n.id === 'm1').src, '.paperworkspace/media/copy/shot.png', 'original is untouched');
+
+    await vscode.commands.executeCommand('paperWorkspace.deleteWorkspace', vscode.Uri.joinPath(pw, 'twin.workspace'), true);
+    assert.ok(fs.existsSync(vscode.Uri.joinPath(pw, 'media', 'copy', 'shot.png').fsPath), "deleting the copy keeps the original's media");
+  });
+
   await step('delete removes the media folder and loose media only that workspace uses', async () => {
     const pw = vscode.Uri.joinPath(ws, '.paperworkspace');
     const media = (...p) => vscode.Uri.joinPath(pw, 'media', ...p).fsPath;

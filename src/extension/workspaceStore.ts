@@ -221,6 +221,38 @@ export class WorkspaceStore implements vscode.Disposable {
   }
 
   /**
+   * Create an independent copy of a workspace (including unsaved canvas changes) next to it. Media stored in
+   * `.paperworkspace` is copied into the copy's own media folder, so editing or deleting either workspace never
+   * affects the other; repository files stay referenced where they are.
+   */
+  async duplicate(uri: vscode.Uri, name: string): Promise<vscode.Uri> {
+    const safe = sanitizeWorkspaceName(name);
+    if (!safe) throw new Error('Enter a valid name.');
+    const next = vscode.Uri.joinPath(uri, '..', safe + WORKSPACE_EXT);
+    if (await exists(next)) throw new Error(`"${safe}" already exists.`);
+    if (await exists(this.mediaDirFor(next))) throw new Error(`The media folder of "${safe}" already exists.`);
+    // Unsaved canvas changes live in the open document; otherwise the file on disk is the freshest copy.
+    const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString() && d.isDirty);
+    const text = open ? open.getText() : Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
+    const { workspace, error } = parseWorkspace(text);
+    if (error) throw new Error(`"${labelFor(uri)}" cannot be duplicated: ${error}`);
+
+    const srcs = new Map<string, string>();
+    for (const src of localMediaSources(workspace)) {
+      if (isAbsoluteWorkspacePath(src) || !isWorkspaceOwnedPath(src)) continue;
+      const file = this.resolveWorkspacePath(uri, src);
+      try {
+        srcs.set(src, await this.saveMedia(next, file.path.split('/').pop() || 'media', await vscode.workspace.fs.readFile(file)));
+      } catch {
+        // Missing media: keep the path, as the original does.
+      }
+    }
+    await vscode.workspace.fs.writeFile(next, Buffer.from(serializeWorkspace(rewriteMediaSources(workspace, (src) => srcs.get(src))), 'utf8'));
+    this.changeEmitter.fire();
+    return next;
+  }
+
+  /**
    * Move a workspace, its media folder and any other `.paperworkspace` media only it shows (e.g. files pasted
    * before workspaces had their own folder) to the trash. Source files are never touched.
    */

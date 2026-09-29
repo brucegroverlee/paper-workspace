@@ -108,6 +108,21 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
+    vscode.commands.registerCommand('paperWorkspace.duplicateWorkspace', async (arg: WorkspaceArg, newName?: string) => {
+      const uri = workspaceFrom(arg);
+      if (!uri) return;
+      const name = typeof newName === 'string' ? newName : await vscode.window.showInputBox({
+        prompt: `Name of the copy of "${labelFor(uri)}"`,
+        value: `${labelFor(uri)} copy`,
+      });
+      if (!name) return;
+      try {
+        await store.duplicate(uri, name);
+      } catch (e) {
+        void vscode.window.showErrorMessage(`Paper Workspace: ${(e as Error).message}`);
+      }
+    }),
+
     vscode.commands.registerCommand('paperWorkspace.deleteWorkspace', async (arg: WorkspaceArg, confirmed?: boolean) => {
       const uri = workspaceFrom(arg);
       if (!uri) return;

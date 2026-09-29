@@ -159,6 +159,11 @@
         "category": "Paper Workspace"
       },
       {
+        "command": "paperWorkspace.duplicateWorkspace",
+        "title": "Duplicate…",
+        "category": "Paper Workspace"
+      },
+      {
         "command": "paperWorkspace.deleteWorkspace",
         "title": "Delete",
         "category": "Paper Workspace"
@@ -231,6 +236,11 @@
           "group": "2_edit"
         },
         {
+          "command": "paperWorkspace.duplicateWorkspace",
+          "when": "view == paperWorkspace.workspaces && viewItem =~ /^workspace/",
+          "group": "2_edit"
+        },
+        {
           "command": "paperWorkspace.deleteWorkspace",
           "when": "view == paperWorkspace.workspaces && viewItem =~ /^workspace/",
           "group": "2_edit"
@@ -271,6 +281,10 @@
         },
         {
           "command": "paperWorkspace.renameWorkspace",
+          "when": "false"
+        },
+        {
+          "command": "paperWorkspace.duplicateWorkspace",
           "when": "false"
         },
         {

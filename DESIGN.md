@@ -167,6 +167,9 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
   dropped bytes are written to the workspace's own folder `.paperworkspace/media/<workspace>/`, which is renamed and
   trashed with the workspace (older layouts may still point at files directly in `.paperworkspace/media/`; they keep
   working). The webview reads them through `mediaRoot` (the root is a `localResourceRoot`).
+* **Duplicate**: *Duplicate…* on a workspace writes a copy (unsaved canvas changes included) next to it; media inside
+  `.paperworkspace/` is copied into the copy's own media folder with `src`s rewritten, so the two never share files.
+  Repository and absolute media stay referenced.
 * **Export / import** (`src/shared/bundle.ts`): *Export…* on a workspace writes a `.paperbundle`, a JSON file with the
   layout (unsaved canvas changes included) and the base64 bytes of every local media file it shows, keyed by `src`.
   Source files are not included; papers keep their root-relative paths. *Import Workspace…* (panel title bar, or the
