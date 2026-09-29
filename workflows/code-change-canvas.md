@@ -12,6 +12,8 @@ Use this workflow when the user asks for a canvas of **code that changed**, for 
 - "Make a canvas of what you did in this session."
 - "Document this feature / fix / PR as a workspace."
 - "Build a review canvas for this PR" (see section 4, *Code review mode*).
+- "Implement the analysis on this canvas and update it with what you changed" (see step 0: the canvas already
+  exists, so you **edit it in place**).
 
 The goal: someone who wasn't in the work session opens the canvas and understands in a couple of minutes **what was
 introduced, what was modified, what was removed and why, how the pieces connect, and what it looks like**.
@@ -37,7 +39,14 @@ Every changed paper gets **both** a status tag (the words) and the matching titl
 | Tag id | Label | Color | Use for |
 |---|---|---|---|
 | `t_entry` | `Entry point` | `#a4c2f4` | Where the reader should start (route, UI event, command) |
-| `t_test` | `Test` | `#b4a7d6` | Test files; give their papers `headerColor` `#b2f2bb`/`#ffd6a5` by status as usual |
+| `t_test` | `Test` | `#b4a7d6` | Test files, only when tests are on the canvas (see *Tests* below); give their papers `headerColor` `#b2f2bb`/`#ffd6a5` by status as usual |
+
+### Tests
+
+| Setting | Value | Meaning |
+|---|---|---|
+| Include test files | `ask` | Ask the user once whether test papers belong on the canvas. Set it to `no` to always leave them out (the "How to verify" note lists them), or `yes` to always add them. |
+| Placement | `beside subject` | Each test paper sits right next to (or directly under) the paper it tests, in the same folder when its path fits, linked by a dotted `tests` edge. Never a separate tests area. |
 | `t_config` | `Config` | `#a2c4c9` | Config, migrations, build or CI files |
 
 ### Review tags (code review mode only)
@@ -63,15 +72,44 @@ Every changed paper gets **both** a status tag (the words) and the matching titl
 - Name files `<kebab-case-view-name>.png`, e.g. `signup-step-address.png`.
 - Link each screenshot to the paper that renders it with a dotted, arrowless edge labeled `renders`.
 
+### Editing an existing canvas
+
+| Setting | Value | Meaning |
+|---|---|---|
+| Edit policy | `edit` | Update the canvas in place, then report the changes. Set it to `ask-first` to have the AI show a short plan and wait for a yes before writing. Deleting the user's own items always needs a yes. |
+| Protection tags | `Do not touch`, `Don't change`, `Keep`, `Reference` | Papers with these tags (or `locked`) are never moved, retagged, retargeted or deleted. Add your team's labels here. |
+| Instruction tags | `change`, `TODO`, `fix`, `implement` | "Change this code." Once done, replaced by `Modified` / `New` on the same paper. |
+
+The full rules are in `SKILL.md` section 6.
+
 ### Other defaults
 
 - Workspace name: `Change - <short summary>` (e.g. `.paperworkspace/Change - address step.workspace`).
+- Layout: **story lanes** (`SKILL.md` 5.3.1): one horizontal lane per layer, steps left → right in run-time order.
+- Containers: a **`folder` per child project or directory** the change touches (e.g. `project-a`,
+  `project-b`); these are the lanes. A `group` only for a business domain that spans folders, external systems,
+  the legend, or other diagram-only areas. Never a group named after a project or directory.
 - `tagPlacement: "top"`, so tag chips stay on the title row when papers sit side by side.
 - At most 3 editors per file; merge hunks closer than ~10 lines into one target.
+- One paper per file: a file already on the canvas gets another editor, never a second paper.
 
 ---
 
 ## 2. Steps
+
+### Step 0: Start from the existing canvas, if there is one
+
+If the user pointed at a workspace (a path, a `paperworkspace:` reference, "this canvas", "my analysis"), or one in
+`.paperworkspace/` already covers this work, **that workspace is what you update**. Follow `SKILL.md` section 6
+together with the steps below:
+
+- Read it first and list the protected items (`locked`, protection tags) and the user's instruction markers
+  (instruction tags, "add X here" captions, notes, arrows). Those markers tell you what the change is meant to be.
+- In steps 3–5, **reuse** its papers: a changed file that already has a paper gets an editor for each changed hunk
+  and its status tag; it is moved into its lane and column. Only files not yet on the canvas get new papers.
+- Turn the user's plan area into the story: the canvas should end up as one left → right flow, not the original
+  analysis plus a second "implementation" panel below it.
+- Apply the edit policy from section 1 (`edit` or `ask-first`).
 
 ### Step 1: Collect the change set
 
@@ -84,6 +122,10 @@ Work out exactly what changed before drawing anything.
 
 Classify each path with the table in section 1: `A` = New, `M` = Modified, `D` = Deleted, `R` = Renamed. Drop
 noise (lockfiles, generated files, formatting-only changes, snapshots) unless the user wants it or it matters.
+
+Set test files apart. Follow the *Include test files* setting in section 1: with `ask`, and when the user hasn't
+said, ask once ("The change has N test files. Add them to the canvas next to the code they test, or leave them out
+and list them in the verify note?"). Test files left out don't count as missing in step 9.
 
 ### Step 2: Understand what the change does
 
@@ -115,11 +157,15 @@ canvas uses.
 
 ### Step 5: Build the diagram and the relationships
 
-- Group papers with a `folder` per directory the change touched (or a `group` per layer when the change is small
-  and concepts matter more than paths).
-- Draw the edges found in step 2, labeled with a verb: `calls`, `imports`, `renders step 2`, `navigates to`,
-  `emits <event>`, `tests`. Solid for calls and control flow, dashed for async/events, dotted for `tests` and
-  `renders`.
+- Lay the papers out as **story lanes** (`SKILL.md` 5.3.1): one horizontal **`folder`** per child project or
+  directory the change crosses (e.g. `project-a`, `project-b`), and one column per step in run-time
+  order. The reader follows the data from the user action on the left to the storage or external API on the right,
+  and each folder title bar leads back to the Explorer. Add a `group` lane only for things with no single location
+  (an `External` lane of shapes, a business domain spanning projects). When updating a canvas, the user's existing
+  folders are the lanes (`SKILL.md` 6.4).
+- Draw the edges found in step 2, labeled with a verb and the data: `calls`, `GET /orders/:id/items`,
+  `returns OrderItem[]`, `renders step 2`, `navigates to`, `emits <event>`, `tests`. Solid for calls and control
+  flow, dashed for async/events and return values, dotted for `tests` and `renders`.
 - Number the annotations in run-time order: `1 · Modified: adds the Address step`.
 - When the flow has steps with no code in the change (a user action, an external API), add a shape for them
   (`actor`, `cloud`, `terminator`) so the story has no gaps.
@@ -162,15 +208,22 @@ If the app can't be run, skip screenshots and say so in the summary note instead
 - **Title**: `Change: <what it does>`; **subtitle**: one sentence plus where to start (the `Entry point`).
 - **Summary note** (yellow) under the title: 3–5 lines, one per notable change.
 - **Legend** group (see `SKILL.md` 5.4) with one row per title bar color used, plus "Red note: deleted file".
-- **How to verify** note (green): the test command and the manual steps.
+- **How to verify** note (green): the test command, the test files (when their papers were left out), and the manual
+  steps.
 - **Risk / follow-up** notes (pink) attached to the snippet they are about.
 
 ### Step 9: Validate and report
 
 Run the checklist in `SKILL.md` 5.8, and also check:
 
-- [ ] Every changed file of the change set appears: as a paper (new/modified/renamed) or a red note (deleted).
+- [ ] Every changed file of the change set appears **once**: as a paper (new/modified/renamed) or a red note
+      (deleted). No path has two papers.
+- [ ] When you updated an existing canvas: protected items are unchanged, existing ids are kept, and no instruction
+      tag (`change`, `TODO`…) is left on a paper whose work is done.
 - [ ] Every changed paper has exactly one status tag and the matching `headerColor`.
+- [ ] Every changed paper sits in the `folder` of its project/directory, not in a group standing in for one.
+- [ ] Test papers are there only if the user wanted them, each right next to the paper it tests. No area holds
+      only tests.
 - [ ] Every modified file's editors target its real changed lines in the current file.
 - [ ] Every `media` `src` exists on disk.
 
@@ -181,15 +234,26 @@ Then report the workspace path, a two-line summary, and the count of new / modif
 ## 3. Layout
 
 ```
-┌ Title + subtitle ───────────────────────────────────────────────┐
-│ Summary note   │ folder / layer 1 → folder / layer 2 → …   │ Screenshots │
-│ Legend         │   papers in run-time order, edges between │ (linked to  │
-│                │                                            │  their view)│
-│                │ Deleted notes (near their replacement) · Tests · Verify note │
-└─────────────────────────────────────────────────────────────────┘
+Title + subtitle
+Summary note · Legend · (the user's analysis note, if updating)
+
+                      1              2                  3                4               5
+                   ┌──────────────────────────────────────────────────────────────────────────┐
+ folder project-a  │ [actor] → [OrderButton] → [OrderDialog]  →  [queries.ts][queries.test]    │
+                   │                            screenshot above                               │
+                   ├──────────────────────────────────────────────────────────────────────────┤
+ folder project-b  │                                                └→ [ordersRouter.ts][router.test] → [service.ts]
+                   │                                                                           │
+                   ├──────────────────────────────────────────────────────────────────────────┤
+ group External    │                                                               (cloud: Payment API)
+                   └──────────────────────────────────────────────────────────────────────────┘
+          deleted-file notes sit next to their replacement · risk notes next to their snippet · Verify note at the end
 ```
 
-Reading order is left → right, top → bottom. Tests go in a row below the code they test, linked with `tests` edges.
+Reading order is **left → right along the flow**; lanes only say where each step runs. Notes, screenshots and
+deleted-file notes stay in the column of the step they are about. Test papers (only when the user wants them) sit
+right beside the paper they test, like `[queries.test]` above. Don't build separate panels for "implementation",
+"tests" or "files": a canvas for a change in two projects has two project folders, not a third area for tests.
 
 ---
 
@@ -209,7 +273,7 @@ When the canvas is for reviewing someone's change rather than documenting your o
 ## 5. Example
 
 A branch that added an Address step to a sign-up wizard: one modified file, one new view with a screenshot, a new
-test, and a deleted modal it replaced.
+test (the user said yes to including tests), and a deleted modal it replaced.
 
 ```json
 {
@@ -290,6 +354,8 @@ Things to notice:
 - Green title bar + `New` tag, orange title bar + `Modified` tag, red note for the deleted file: status reads
   from across the room and up close.
 - The deleted modal points at its replacement with `replaced by`; the screenshot hangs off the view that renders it.
+- The test paper sits directly under the step it tests (same `x` as `StepAddress.tsx`), not in a tests area. Its
+  path (`test/signup/…`) isn't under `src/signup`, so it sits just outside that folder.
 - Folder math: papers at `{16, 56}` and 40px apart (16 + 640 + 40 = 696), folder width 696 + 640 + 16 = 1352,
   height 56 + 300 + 30 (caption) + 16 = 402.
 

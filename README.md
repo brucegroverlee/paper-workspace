@@ -36,8 +36,9 @@ Works in **VS Code**, **Cursor** and **Windsurf / Devin**.
   reference* to copy an id such as `paperworkspace:.paperworkspace/Auth.workspace#editor/e_route`. Paste it into an AI
   chat and an agent using [`SKILL.md`](SKILL.md) opens that workspace and finds the exact item you mean. Right-click the
   empty canvas → *Copy workspace reference* for the whole canvas.
-- **AI skill**: [`SKILL.md`](SKILL.md) teaches an AI agent to read, explain and build workspaces. Recipes for specific
-  canvases live in [`workflows/`](workflows/) and are meant to be customized per team, e.g.
+- **AI skill**: [`SKILL.md`](SKILL.md) teaches an AI agent to read, explain, build and update workspaces (in place,
+  leaving locked and "Do not touch" items alone). Recipes for specific canvases live in [`workflows/`](workflows/)
+  and are meant to be customized per team, e.g.
   [`code-change-canvas.md`](workflows/code-change-canvas.md) for a canvas of the changes in a branch, session or PR.
   See [Use the AI skill](#use-the-ai-skill) to add it to your agent.
 - **Ctrl+S** in a canvas saves the layout and every changed file on it.
@@ -55,7 +56,7 @@ Then in VS Code / Cursor / Windsurf: *Extensions* → `…` → *Install from VS
 ## Use the AI skill
 
 [`SKILL.md`](SKILL.md) is an [Agent Skill](https://agentskills.io): it teaches an AI coding agent the workspace format
-and how to read, explain and build canvases. The [`workflows/`](workflows/) folder next to it holds recipes the skill
+and how to read, explain, build and update canvases. The [`workflows/`](workflows/) folder next to it holds recipes the skill
 reads when they apply (for now, [`code-change-canvas.md`](workflows/code-change-canvas.md) for a canvas of changed
 code). The skill is two parts that must stay together:
 

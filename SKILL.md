@@ -1,6 +1,6 @@
 ---
 name: paper-workspace
-description: Read, explain, and create Paper Workspace canvases (`.paperworkspace/*.workspace` files), and resolve `paperworkspace:` references the user pastes. Use when the user asks what a workspace shows or means, pastes a `paperworkspace:...#type/id` reference to one of its items, wants a workspace/diagram/canvas explained, asks to explain how a feature, flow, or piece of code works visually, or asks for a canvas of changed code (current branch, session work, a feature, fix, PR, or code review; see workflows/code-change-canvas.md) — build a canvas that lays out the real code snippets, folders, diagram shapes, sticky notes, tags, colors, and arrows so the story reads at a glance.
+description: Read, explain, create, and update Paper Workspace canvases (`.paperworkspace/*.workspace` files), and resolve `paperworkspace:` references the user pastes. Use when the user asks what a workspace shows or means, pastes a `paperworkspace:...#type/id` reference to one of its items, wants a workspace/diagram/canvas explained, asks to explain how a feature, flow, or piece of code works visually, asks for a canvas of changed code (current branch, session work, a feature, fix, PR, or code review; see workflows/code-change-canvas.md), or asks to implement, apply, or update from an analysis/plan they laid out on a canvas — edit that canvas in place (reuse its papers, respect locked and "do not touch" items, never duplicate a file) and lay out real code snippets, shapes, notes, tags, colors, and arrows as a left-to-right story that reads at a glance.
 ---
 
 # Paper Workspace
@@ -10,13 +10,16 @@ canvas holding **live, editable snippets of real files**, next to project folder
 images, groups, and arrows. Each canvas is a JSON file in `.paperworkspace/<Name>.workspace` at the project root. The
 files are meant to be committed, so a workspace is documentation that points at the real code.
 
-This skill covers three jobs:
+This skill covers four jobs:
 
 1. **Read**: take a `.workspace` file and explain what it is for, what each part says, and how the parts connect.
 2. **Resolve a reference**: the user pasted `paperworkspace:<workspace>#<type>/<id>`; find that item and act on it.
 3. **Create**: study a feature, a flow, or a change that was just made, and write a `.workspace` that explains it.
+4. **Update**: change an existing canvas in place, for example after implementing the plan the user laid out on it.
+   **You are allowed to edit a canvas**: move, retarget, retag, recolor and re-caption its papers and add new ones,
+   except the items the user protected (section 6).
 
-All three need the mental model (section 1) and the file format (section 2), so they come first.
+All four need the mental model (section 1) and the file format (section 2), so they come first.
 
 ### Workflow files
 
@@ -46,8 +49,8 @@ read a canvas, recover those jobs. When you build one, pick each element for its
 |---|---|---|---|
 | **`text`** (large, bold) | Title, headings | "The question this canvas / area answers" | One title at the top-left; optional section headings |
 | **`file` + `editor`** | Evidence: the real code | "This is where it happens" | A step of the flow; the editor's `target` is the exact lines that matter |
-| **`folder`** | Scope in the project tree | "These papers live in / belong to this directory" | Grouping papers by module or package, e.g. everything a feature touched in `src/auth` |
-| **`group`** | A concept area (not tied to a path) | "These belong together: a layer, a phase, a subsystem, a legend" | Layers (UI / API / DB), phases (Before / After), a legend |
+| **`folder`** | **Where** the code lives in the project tree | "These papers live in / belong to this directory" | **Every grouping by location**: a child project of a multi-project workspace (`project-b`), a package, a module (`src/auth`). The folder's title bar links the canvas back to the Explorer |
+| **`group`** | **What** belongs together, regardless of location | "These belong together: a business domain, a phase, a concept, a legend" | Business or domain groupings whose files live in different places ("Billing", "Preview feature"), phases (Before / After), diagram-only areas (shapes, a legend) |
 | **`note`** (sticky note) | The author's voice | "Why", gotchas, decisions, open questions, TODOs | Anything a caption can't say in one phrase |
 | **`annotation`** (caption below a box) | A label for one box | "The role of this one thing", often a numbered step | Every snippet: `1 · Validates the token` |
 | **`tags`** (chips on files, editors, folders) | Categories that cut across the layout | "This paper is a *New* / *Entry point* / *Test* / *Risk*" | Status and role, so the reader can scan for a category anywhere on the canvas |
@@ -80,6 +83,31 @@ Meaning comes from **how elements relate**, not only from each one alone. There 
 
 Layout encodes the *structure* (flow, layers); tags and colors encode *categories* that cut across it; notes and
 annotations carry the *reasoning*; edges carry the *relationships*. A good canvas uses each channel for one purpose.
+
+### Folder or group? Location vs. meaning
+
+Choose the container by what it says:
+
+- **Papers that share a location go in a `folder`** for that directory. This is the default for code. The folder
+  shows the real path, carries tags, and lets the reader go back and forth between the canvas and the Explorer. In a
+  workspace that holds several child projects (top-level directories such as `project-a`, `project-b`,
+  `project-c`, each with its own `package.json`, `pom.xml`, `.git`…), **each project the story touches
+  gets its own folder**. Nest a sub-folder (`project-b/src/orders`) only when it helps the reader.
+- **A `group` is for a business or conceptual grouping**: papers that belong together by *meaning* but live in
+  different places (a domain like "Payments", a feature, a phase, "Before / After"), and for areas with no code at
+  all (a flowchart of shapes, a legend, external systems).
+- **A group whose title is a project or directory name is a mistake**: make it a folder. If every file in a group
+  sits under one directory, the group should be that folder.
+- The two combine: a group for a business domain can hold the project folders it spans, or a project folder can hold
+  a group for a domain inside it.
+
+### One paper per thing: the canvas tells one story
+
+Each source file appears **once** on a canvas: one `file` node per path, holding as many editors as the story needs
+(see *File nodes and their editors*). The same goes for concepts: one shape per external system, one note per idea.
+When a second part of a file matters, add an editor to its existing paper; when a paper matters to a second step,
+draw an edge to it. Never build a second, parallel panel that repeats papers already on the canvas ("Implementation",
+"Tests", "Before/after" copies). A duplicate splits the story in two and leaves the reader to reconcile them.
 
 ---
 
@@ -159,7 +187,8 @@ Field details:
   every chip without removing any tag (omit it to show them).
 - **`locked`** (`true`, on a file, editor, folder or group) protects it from accidental changes on the canvas: it can't
   be moved, resized, renamed, recolored, re-tagged or deleted, and its code is read-only. Everything inside it is
-  locked with it. A lock icon is drawn before its title. Leave it out unless the user asks for a locked paper.
+  locked with it. A lock icon is drawn before its title. Leave it out unless the user asks for a locked paper. When
+  you edit a workspace, a locked item is **protected** and you must leave it exactly as it is (section 6.2).
 - **`customColors`** (top level, optional) is the color picker's "Custom" row for this workspace: `#rrggbb` values,
   oldest first. It has no effect on how anything is drawn, so leave it out when writing a workspace.
 - **`text`** in shapes, notes, and text nodes is plain text. `\n` makes a new line, and there is no Markdown.
@@ -385,6 +414,9 @@ of the real code, not a dump of files. Every paper, note, tag and color should e
 - Note the branches (validation failure, cache hit or miss, error paths), async boundaries (queues, events,
   callbacks), and external systems (databases, third-party APIs).
 - Check for existing workspaces in `.paperworkspace/` and reuse their conventions (tag names, colors, layout).
+- Find the project structure: is the root one project, or a workspace of **child projects** (top-level directories
+  with their own `package.json`, `pom.xml`, `go.mod`, `.git`…)? Note which project and directory each snippet lives
+  in; those become the folders (section 1, *Folder or group?*).
 
 ### 5.2 Plan the story before the layout
 
@@ -399,6 +431,22 @@ Write a short outline:
 - **Reasoning**: the why, the decisions, the gotchas, the open questions. These become notes.
 - **Supporting context**: data models, config, key types. These go to the side, not in the main path.
 - **Legend**: whenever colors or edge styles carry meaning.
+- **Tests**: left out unless the user wants them (5.2.1).
+
+#### 5.2.1 Test files: ask first, then place them beside their subject
+
+A canvas is mostly for understanding the business flow, and test papers rarely add to that. So:
+
+- **Leave test files off the canvas by default.** If the user didn't say whether they want tests, ask once while
+  planning ("Include the test files on the canvas?"). When they don't want them, or you can't ask, mention the tests
+  in a note instead (the green "How to verify" note: the test command and the test file names).
+- **When tests are included, each test paper goes right next to the paper it tests**: beside it (to its right) or
+  directly under it, in the same lane and the same folder when the test's path fits in that folder. If the folder is
+  a sub-directory that can't hold the test's path, put the test paper just outside the folder, level with its
+  subject. Link it with a short dotted `tests` edge.
+- **Never collect tests into their own area**: no "Tests" group, folder, lane or row at the bottom of the canvas. A
+  separate test area adds a region the change doesn't have, and makes the reader match each test to its subject by
+  following long edges.
 
 Keep it focused. If a flow needs more than about 12 snippets, split it: show the high-level flow with shapes, and put
 the detail in a second workspace (use an `off-page` shape to point to it), or in a grouped region.
@@ -407,13 +455,58 @@ the detail in a second workspace (use an `off-page` shape to point to it), or in
 
 | Pattern | Use it for | Arrangement |
 |---|---|---|
+| **Story lanes** (default for flows and changes) | Any flow that crosses layers or services: a request, a feature, a change | Horizontal lanes (one `folder` per project or directory the flow crosses, stacked top → bottom; a `group` only for a lane with no single location); steps go **left → right** in run-time order, each step in the lane where it runs. See 5.3.1. |
 | **Pipeline** | Linear request/processing flows | Snippets left → right in reading order, edges `right` → `left`. Wrap to a new row below after about 4 snippets. |
-| **Layered** | Flows that cross architectural layers | One `group` per layer (UI / API / domain / storage) stacked top → bottom or placed as columns. Edges cross between layers. |
+| **Layered** | Flows that cross architectural layers | One container per layer (UI / API / domain / storage) stacked top → bottom or placed as columns: a `folder` when the layer is a project or directory, a `group` when it isn't. Edges cross between layers. |
 | **By folder** | A change or a module spread over directories | One `folder` per directory the work touched; papers inside in reading order; edges between folders. |
 | **Flowchart + code** | Logic with decisions | A column of shapes (`terminator` → `rectangle` → `diamond`…) on the left. Each shape links with a dotted edge to the snippet that implements it on the right. |
 | **Hub** | "What uses X?" and module overviews | The central snippet in the middle, related snippets around it, edges labeled with the relationship. |
 | **Sequence** | Interactions between services or actors | One column per participant (`actor`/`cloud`/group), time going down, labeled horizontal edges between columns. |
 | **Before / after** | Refactors, behavior changes | Two groups side by side ("Before", "After"), or old behavior as shapes/notes and new behavior as code. |
+
+Prefer **Story lanes** unless another pattern clearly fits better. Avoid a grid of papers sorted by folder or by kind
+(all the code here, all the tests there): it shows *what* exists, not *how it flows*.
+
+#### 5.3.1 Story lanes: a horizontal sequence
+
+A story-lane canvas reads like a sequence diagram turned into code: the reader's eye moves left → right along the
+data flow, and drops down only to see which layer a step runs in.
+
+```
+                        step 1        step 2           step 3           step 4          step 5
+                     ┌────────────────────────────────────────────────────────────────────────┐
+ folder project-a/ui │ [actor] ──→ [Button.tsx] ──→ [Dialog.tsx]                              │
+                     ├────────────────────────────────────────────────────────────────────────┤
+ folder project-a/api│                                 └──→ [queries.ts] ─┐                   │
+                     ├───────────────────────────────────────────────────┼────────────────────┤
+ folder project-b    │                                                   └──→ [router.ts] ──→ [service.ts]
+                     ├────────────────────────────────────────────────────────────────────────┤
+ group External      │                                                                 (cloud: Payment API)
+                     └────────────────────────────────────────────────────────────────────────┘
+                       notes, screenshots and (if wanted) tests sit right next to the step they are about
+```
+
+- **Lanes**: one full-width lane per participant, in call order top → bottom. A participant is usually a place in
+  the code, so **a lane is a `folder`**: one per child project (`project-a`, `project-b`) or, in a
+  single project, one per top-level module (`src/ui`, `src/api`). Use a `group` lane only for a participant with
+  no single location: external systems (shapes) or a business domain that spans directories. Never a `Tests`
+  lane. Give each lane a light body tint. All lanes share the same `x` and width, so the step
+  columns line up across them. A folder lane grows wider than its papers need; that's fine (width ≤ 2000, or wrap).
+- **Steps**: each step of the flow gets a column. Its paper goes in the lane where the code runs, at that column's
+  `x`. Column `x` = previous column `x` + previous paper width + 100. Two steps in the same lane follow each other
+  in that lane; a call into another layer moves one column right **and** one lane down.
+- **Edges**: follow the data. Same-lane edges go `right` → `left`; cross-lane edges leave the `right` or `bottom`
+  side and enter the `left` or `top` side, with `path: "rounded"` or `"step"`. Label every edge with the verb and,
+  when it helps, the data (`GET /orders/:id/items`, `returns OrderItem[]`). Draw the response back as a
+  dashed edge only when the return path matters.
+- **Number the steps** in annotations (`1 ·`, `2 ·`…), in column order, so the story survives zooming out.
+- **Supporting items stay next to their step**, not in a separate panel: a test paper (only if the user wants
+  tests, 5.2.1) sits right beside or under the paper it tests, in the same lane; a note sits next to its snippet; a
+  screenshot sits above or below the UI step that renders it.
+- **Actors and external systems** (`actor`, `cloud`, `cylinder`) open and close the story: the user or caller on
+  the far left of the top lane, the database or third-party API at the far right of its lane.
+- If the story is longer than about 8 columns, wrap the lanes into a second band below (repeat the lane titles), or
+  split it into two workspaces joined by an `off-page` shape.
 
 ### 5.4 Encode meaning deliberately
 
@@ -526,7 +619,8 @@ make pasted references readable.
 ### 5.7 Write the file
 
 - Path: `.paperworkspace/<Human Readable Name>.workspace`. Create `.paperworkspace/` if it doesn't exist. Leave out
-  these characters from the name: `< > : " / \ | ? *`. Don't overwrite an existing workspace unless the user asks.
+  these characters from the name: `< > : " / \ | ? *`. Don't replace an existing workspace with a new one from
+  scratch; to change one, **edit it in place** following section 6.
 - Order the nodes so **every parent comes before its children**. Within a parent, later nodes draw on top.
 - Pretty-print with 2-space indentation. Leave out fields that are default or unset, so the file stays small and
   diffs stay readable. Round coordinates to integers.
@@ -541,6 +635,12 @@ Check every item on this list:
       `group` or `folder`. There are no cycles. No note, shape or text has a `file` as parent.
 - [ ] Every `file` path exists relative to the project root, and every file node has at least one editor. Every
       `folder` path is an existing directory, and files inside a folder are in that directory.
+- [ ] **No path appears in two `file` nodes**, and no directory in two `folder` nodes.
+- [ ] Papers are grouped by location with `folder`s: no `group` is titled with a project or directory name, and no
+      group holds only files from one directory. Groups are used only for business/concept groupings and
+      diagram-only areas.
+- [ ] Test papers appear only if the user wanted them, each right next to its subject; there is no test-only
+      group, folder, lane or row.
 - [ ] Every `target` is within the file's line count, and `anchor` equals the trimmed text of line `target.start`.
 - [ ] Single-editor files: the editor is at `{0, 40}`, width equals the file width, and height is the file height
       minus 40. Multi-editor files: the editors fit inside the file with the padding described above.
@@ -550,6 +650,8 @@ Check every item on this list:
 - [ ] Every color or edge style that carries meaning is explained by a legend or by tags.
 - [ ] Every edge `source`/`target` refers to an existing node id. Edges pointing at missing ids are silently dropped.
 - [ ] Colors are `#rrggbb` (or `"none"` for a shape fill), and shape ids come from the list in section 2.
+- [ ] When you edited an existing workspace: every protected node is byte-for-byte unchanged, and every node id the
+      user could have referenced still exists (section 6.5).
 
 Then tell the user the file path and how to open it: click it in the Explorer, or open it from the **Paper
 Workspace** activity-bar panel. Give a two-line summary of the tour the canvas presents and the meaning of its tags
@@ -557,7 +659,101 @@ and colors. If the workspace is already open, the canvas reloads from the saved 
 
 ---
 
-## 6. Canvases of changed code
+## 6. Updating an existing workspace
+
+Users often prepare a canvas as a **plan**: they lay out the files involved, tag some papers (`change`, `TODO`,
+`fix`), write captions and notes like "add the new endpoint here", draw arrows, and then ask you to implement it and
+"update the canvas". In that case the canvas **is** the deliverable. Rework it in place so it tells the story of
+what now exists. Don't leave it untouched and draw a second canvas next to it or below it.
+
+### 6.1 When to edit in place
+
+- The user asks you to update, fix, reorganize or extend a workspace, or to implement what a workspace describes →
+  edit that workspace.
+- The user asks for a canvas of a change and a workspace for the same work already exists (same feature, ticket or
+  files) → ask once: "update `<name>` in place, or create a new workspace?"
+- Otherwise → create a new workspace (section 5).
+
+**Edit policy.** By default, apply the edits and report what you changed afterwards (6.6). If the user or the
+project's workflow file sets the policy to **ask first**, first show a short plan (papers you will move, retarget,
+retag or add; anything you will remove) and wait for a yes. Whatever the policy, **always ask before deleting
+something the user made** (a paper, note, shape, edge or group you didn't create), and offer to keep it instead.
+
+### 6.2 Protected items: never change them
+
+An item is **protected** when any of these is true:
+
+- It has `locked: true`, or it sits inside a locked group, folder or file.
+- It carries a tag whose label says so, ignoring case and punctuation: `Do not touch`, `Don't touch`,
+  `Do not change`, `Don't change`, `Do not modify`, `Keep`, `Keep as is`, `Read only`, `Frozen`, `Reference`,
+  `Baseline` (workflow files can add labels). Everything inside a tagged folder is protected with it.
+- A note attached to it (dotted edge) or its annotation says the same thing ("don't move this", "keep as reference").
+
+For a protected item, leave **every field** as it is: position, size, parent, title, annotation, tags, colors,
+editors, targets, and its place in the `nodes` array. You may still draw new edges **to or from** it (that doesn't
+change the item), and lay the story out around it. Never put new children inside a protected container. If the task
+seems to need a change to a protected item, don't make it: say so in your report and ask.
+
+### 6.3 Read the user's markers as instructions
+
+Before editing, read the canvas as section 4 describes, then list the user's markers and what each asks for:
+
+| Marker | Read it as | After the work is done |
+|---|---|---|
+| A tag like `change`, `TODO`, `fix`, `update`, `implement` on a paper | "This code is what must change" | Replace it on that paper with the status tag (`Modified` / `New`) and matching `headerColor`. Drop the tag definition only when no paper uses it any more. |
+| A caption or note like "add X here", "move this to Y" | Where and what to change | Rewrite the caption to the result (`Modified · adds GET /orders/:id/items`). Keep the user's note, and attach a small green note or edit its text to say it's done, e.g. `Done: added in ordersRouter.ts:42`. |
+| A user-drawn edge (e.g. "done here", "reuse this helper") | A relationship or decision the user wants kept | Keep it; point it at the new editor if the code moved. |
+| A tag like `Do not touch` | Protected (6.2) | Unchanged. |
+
+### 6.4 Reuse papers; never duplicate them
+
+1. **Index what's already there.** Before adding anything, map every `file` node by path, every `folder` by
+   directory, and every shape/note by text. This is the list you reuse from.
+2. **A file that's already on the canvas keeps its paper.** For new or changed code in it, add an editor to that
+   paper (the file switches to the multi-snippet layout: recompute the editor stack and the file size, see section
+   2), or retarget the existing editor if its old target no longer matters. Keep the existing editor's `id`.
+3. **Move papers into the story** instead of copying them: change their `position` and `parent` to put them in
+   their lane and step column (5.3.1). A paper moved into a group or folder gets a position relative to that
+   container.
+4. **Reuse the user's folders as the lanes.** If the user already made a folder for a project or directory, new
+   and moved papers from that location go inside it; don't create a group (or a second folder) for the same place.
+   If that folder is protected, put the paper right next to it, link it, and say so in the report. If the user
+   used groups for locations, keep them, but make your own containers folders (and offer to convert theirs).
+5. **Update, don't stack.** Change captions, tags and header colors on the existing paper; don't add a second paper
+   that says "modified version".
+6. **Tests only if wanted, and next to what they test** (5.2.1). Ask before adding test papers the user didn't
+   have. Put each one beside or under its subject, linked by a `tests` edge, never in a separate "Tests" area. If
+   the canvas already has such an area you made, dissolve it by moving each test paper next to its subject.
+7. **Leftover plan scaffolding** (an "Analysis" group that is now empty, an old arrow into a paper you moved):
+   empty containers and edges you created can go; the user's own items need a yes before you remove them (6.1).
+   If the user's analysis text still matters, keep it as a note at the start of the story.
+
+### 6.5 Keep ids and references stable
+
+- Keep the `id` of every existing node and edge. The user may have copied `paperworkspace:` references to them, and
+  their chat history or PR descriptions may cite them.
+- Give new nodes new, readable ids that don't collide with existing ones.
+- Keep the existing `tags` definitions (ids, labels, colors) and extend them; reuse a tag with the same meaning
+  instead of defining a second one ("change" vs "Modified" is one exception: the status tag replaces the
+  instruction tag, 6.3).
+- Keep top-level fields you don't need to change (`tagPlacement`, `showTags`, `customColors`).
+
+### 6.6 How to do it and report it
+
+1. Read the whole `.workspace` file and keep a copy of the original (in memory or a scratch file).
+2. Plan the new layout on paper first: which lane and column each step goes to, which existing paper fills it, and
+   what's new. Protected items keep their spots; plan the lanes around them (above, below or to the right).
+3. Write the file with the edits, keeping `nodes` in parent-before-child order.
+4. Validate with 5.8, then compare against the original: every protected node unchanged, no existing id lost unless
+   the user approved removing it, no path in two file nodes.
+5. Report: the workspace path; what you moved, retargeted, retagged, added and removed; the protected items you left
+   alone; and anything you wanted to change but didn't (protected, or waiting for the user's yes). If the canvas is
+   open in the editor, it reloads from the saved file; unsaved changes on the canvas may conflict, so say that the
+   user should save first if they were editing it.
+
+---
+
+## 7. Canvases of changed code
 
 When the user asks for a canvas of a change (the current branch, what you did in this session, a feature, fix or PR,
 or a code review), **read [`workflows/code-change-canvas.md`](workflows/code-change-canvas.md) and follow it**. It
@@ -568,7 +764,7 @@ on memory.
 
 ---
 
-## 7. Example: explaining a flow
+## 8. Example: explaining a flow
 
 A login flow: a decision flowchart on the left, the real code on the right, a service file with two snippets, and a
 note.
@@ -639,7 +835,7 @@ In a real workspace, every `target` and `anchor` must come from reading the actu
 
 ---
 
-## 8. Quick reference
+## 9. Quick reference
 
 - Location: `.paperworkspace/*.workspace` (JSON, version 2).
 - Workflow files: `workflows/*.md` (team-customizable recipes; e.g. `code-change-canvas.md` for canvases of changed code).
@@ -651,3 +847,8 @@ In a real workspace, every `target` and `anchor` must come from reading the actu
 - Tags: defined once at the top level; used by files, editors and folders only; single-editor files show the file's.
 - Edge defaults: `curve`, 2px, `solid`, no start marker, `arrow` end marker.
 - Array order is stacking order. Parents come before children.
+- Default layout: story lanes (horizontal lanes per layer, steps left → right). One `file` node per path, ever.
+- Containers: `folder` = where code lives (one per child project / directory); `group` = business domain, concept,
+  or diagram-only area.
+- Editing a canvas: allowed. Leave locked / "Do not touch" items unchanged, keep ids, reuse papers, ask before
+  deleting the user's items.
