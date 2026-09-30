@@ -285,6 +285,8 @@ export const EDITOR_GAP = 16;
 export const EDITOR_HEADER_HEIGHT = 30;
 export const DEFAULT_EDITOR_WIDTH = 640;
 export const DEFAULT_EDITOR_HEIGHT = 380;
+/** Default size of a whole file paper added without a target (Explorer drop / context menu); editable in the config panel. */
+export const DEFAULT_NEW_FILE_SIZE = { width: 820, height: 900 };
 /** Default minimum node size; users can change it in the canvas config panel. */
 export const DEFAULT_MIN_NODE_SIZE = 50;
 /** Hard lower bound for any node dimension, whatever the file or the config says. */
@@ -515,10 +517,11 @@ export function canvasBackgroundOf(v: unknown): string {
   return color(v) ?? DEFAULT_CANVAS_BACKGROUND;
 }
 
-/** A config size value clamped to the allowed range (falls back to the default when not a number). */
-export function clampNodeSize(v: unknown): number {
+/** A config size value clamped to the allowed range (falls back to `fallback` when not a number). */
+export function clampNodeSize(v: unknown, fallback = DEFAULT_MIN_NODE_SIZE): number {
+  if (typeof v === 'string' && !v.trim()) return fallback;
   const n = Math.round(Number(v));
-  if (!Number.isFinite(n)) return DEFAULT_MIN_NODE_SIZE;
+  if (!Number.isFinite(n)) return fallback;
   return Math.min(NODE_SIZE_CEILING, Math.max(NODE_SIZE_FLOOR, n));
 }
 
@@ -1016,6 +1019,8 @@ export function addSnippet(
     origin: XY;
     /** Title visibility for the nodes this creates (config panel defaults); undefined = the format defaults. */
     showTitles?: { file: boolean; editor: boolean };
+    /** Size of a new file paper added without a target (config panel); undefined = `DEFAULT_NEW_FILE_SIZE`. */
+    fileSize?: { width: number; height: number };
     /** Explicit position (drops): used as-is. */
     position?: XY;
     id?: () => string;
@@ -1064,6 +1069,12 @@ export function addSnippet(
     width: DEFAULT_EDITOR_WIDTH,
     height: editorHeightFor(target, opts.lineHeight),
   };
+  // A targeted snippet is sized to its lines; a whole file gets the configured paper size.
+  if (!target) {
+    const fileSize = opts.fileSize ?? DEFAULT_NEW_FILE_SIZE;
+    editor.width = Math.max(NODE_SIZE_FLOOR, fileSize.width);
+    editor.height = Math.max(NODE_SIZE_FLOOR, fileSize.height - FILE_HEADER_HEIGHT);
+  }
   const size = singleFileSize(editor);
   const occupied = workspace.nodes.filter((n) => isBoxNode(n) && n.parent === undefined);
   const file: FileNode = {

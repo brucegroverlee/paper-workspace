@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
   DEFAULT_EDITOR_WIDTH,
   DEFAULT_FOLDER_SIZE,
+  DEFAULT_NEW_FILE_SIZE,
   LineRange,
   WorkspaceFile,
   WORKSPACE_DIR,
@@ -413,6 +414,7 @@ export class WorkspaceStore implements vscode.Disposable {
       anchor: target && source.lineAt(target.start - 1).text.trim(),
       lineHeight: editorSettings().lineHeight,
       showTitles: titleDefaults(),
+      fileSize: newFileSize(),
       origin,
       position,
     });
@@ -492,6 +494,8 @@ export function canvasConfig(): CanvasConfig {
     minNodeWidth: clampNodeSize(c.get('minNodeWidth')),
     minNodeHeight: clampNodeSize(c.get('minNodeHeight')),
     focusPercent: clampFocusPercent(c.get('focusPercent')),
+    newFileWidth: clampNodeSize(c.get('newFileWidth'), DEFAULT_NEW_FILE_SIZE.width),
+    newFileHeight: clampNodeSize(c.get('newFileHeight'), DEFAULT_NEW_FILE_SIZE.height),
     canvasBackground: canvasBackgroundOf(c.get('canvasBackground')),
     showFileTitleByDefault: c.get<boolean>('showFileTitleByDefault', true) !== false,
     showEditorTitleByDefault: c.get<boolean>('showEditorTitleByDefault', false) === true,
@@ -504,12 +508,20 @@ function titleDefaults() {
   return { file: c.showFileTitleByDefault, editor: c.showEditorTitleByDefault };
 }
 
+/** Size of a file paper added without a target, from the config panel. */
+function newFileSize() {
+  const c = canvasConfig();
+  return { width: c.newFileWidth, height: c.newFileHeight };
+}
+
 /** Store config panel changes as user settings, so every canvas (and the Settings UI) sees them. */
 export async function updateCanvasConfig(patch: Partial<CanvasConfig>) {
   const c = vscode.workspace.getConfiguration('paperWorkspace');
   for (const key of ['minNodeWidth', 'minNodeHeight'] as const) {
     if (patch[key] !== undefined) await c.update(key, clampNodeSize(patch[key]), vscode.ConfigurationTarget.Global);
   }
+  if (patch.newFileWidth !== undefined) await c.update('newFileWidth', clampNodeSize(patch.newFileWidth, DEFAULT_NEW_FILE_SIZE.width), vscode.ConfigurationTarget.Global);
+  if (patch.newFileHeight !== undefined) await c.update('newFileHeight', clampNodeSize(patch.newFileHeight, DEFAULT_NEW_FILE_SIZE.height), vscode.ConfigurationTarget.Global);
   if (patch.focusPercent !== undefined) await c.update('focusPercent', clampFocusPercent(patch.focusPercent), vscode.ConfigurationTarget.Global);
   for (const key of ['showFileTitleByDefault', 'showEditorTitleByDefault'] as const) {
     if (patch[key] !== undefined) await c.update(key, patch[key] === true, vscode.ConfigurationTarget.Global);

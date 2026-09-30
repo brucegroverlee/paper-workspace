@@ -6,6 +6,7 @@ import {
   FILE_HEADER_HEIGHT,
   FILE_PADDING,
   DEFAULT_FOLDER_SIZE,
+  DEFAULT_NEW_FILE_SIZE,
   FOLDER_GAP,
   GROUP_PADDING,
   addFolder,
@@ -383,6 +384,15 @@ describe('addSnippet', () => {
     const [fa, fb] = b.workspace.nodes.filter(isFileNode);
     expect(fb.position).not.toEqual(fa.position);
     expect(b.workspace.nodes.filter(isEditorNode)).toHaveLength(2);
+  });
+
+  it('gives a whole file (no target) the configured paper size; a targeted snippet fits its lines', () => {
+    const whole = addSnippet(emptyWorkspace(), { ...base, file: 'a.ts', fileSize: { width: 700, height: 600 } });
+    expect(whole.workspace.nodes.find(isFileNode)).toMatchObject({ width: 700, height: 600 });
+    const byDefault = addSnippet(emptyWorkspace(), { ...base, file: 'a.ts' });
+    expect(byDefault.workspace.nodes.find(isFileNode)).toMatchObject(DEFAULT_NEW_FILE_SIZE);
+    const snippet = addSnippet(emptyWorkspace(), { ...base, file: 'a.ts', target: { start: 3, end: 6 }, fileSize: { width: 700, height: 600 } });
+    expect(snippet.workspace.nodes.find(isEditorNode)!.height).toBe(editorHeightFor({ start: 3, end: 6 }, base.lineHeight));
   });
 
   it('sizes editors to their target within limits', () => {

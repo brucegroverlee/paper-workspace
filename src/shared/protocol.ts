@@ -1,5 +1,5 @@
 // Messages exchanged between the extension host and the canvas webview.
-import { DEFAULT_CANVAS_BACKGROUND, DEFAULT_FOCUS_PERCENT, DEFAULT_MIN_NODE_SIZE, type LineRange, type WorkspaceFile, type XY } from './workspace';
+import { DEFAULT_CANVAS_BACKGROUND, DEFAULT_FOCUS_PERCENT, DEFAULT_MIN_NODE_SIZE, DEFAULT_NEW_FILE_SIZE, type LineRange, type WorkspaceFile, type XY } from './workspace';
 import type { DiagnosticJson, LanguageRequest, LanguageResult } from './language';
 import type { TextmateInit, TextmateRequest, TextmateResult, TextmateTheme } from './textmate';
 
@@ -16,6 +16,9 @@ export interface CanvasConfig {
   minNodeHeight: number;
   /** Percentage of the window a focused node fills. */
   focusPercent: number;
+  /** Size of a file paper added without a target (Explorer drop / context menu); snippets from a selection fit their lines. */
+  newFileWidth: number;
+  newFileHeight: number;
   /** Title visibility given to new file / editor papers (existing papers keep their own). */
   showFileTitleByDefault: boolean;
   showEditorTitleByDefault: boolean;
@@ -28,6 +31,8 @@ export const DEFAULT_CANVAS_CONFIG: CanvasConfig = {
   minNodeWidth: DEFAULT_MIN_NODE_SIZE,
   minNodeHeight: DEFAULT_MIN_NODE_SIZE,
   focusPercent: DEFAULT_FOCUS_PERCENT,
+  newFileWidth: DEFAULT_NEW_FILE_SIZE.width,
+  newFileHeight: DEFAULT_NEW_FILE_SIZE.height,
   canvasBackground: DEFAULT_CANVAS_BACKGROUND,
   showFileTitleByDefault: true,
   showEditorTitleByDefault: false,

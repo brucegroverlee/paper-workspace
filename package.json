@@ -56,6 +56,20 @@
           "maximum": 2000,
           "description": "Minimum height in pixels a file or snippet node can be resized to. Also editable from the canvas configuration panel."
         },
+        "paperWorkspace.newFileWidth": {
+          "type": "number",
+          "default": 820,
+          "minimum": 20,
+          "maximum": 2000,
+          "description": "Width in pixels of a file paper added without a selection (dropped from the Explorer or 'Add to Paper Workspace'). Snippets added from a selection fit their lines instead. Also editable from the canvas configuration panel."
+        },
+        "paperWorkspace.newFileHeight": {
+          "type": "number",
+          "default": 900,
+          "minimum": 20,
+          "maximum": 2000,
+          "description": "Height in pixels of a file paper added without a selection (dropped from the Explorer or 'Add to Paper Workspace'). Snippets added from a selection fit their lines instead. Also editable from the canvas configuration panel."
+        },
         "paperWorkspace.focusPercent": {
           "type": "number",
           "default": 80,

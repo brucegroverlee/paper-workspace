@@ -8,6 +8,7 @@ import {
   NODE_SIZE_FLOOR,
   clampFocusPercent,
   clampNodeSize,
+  DEFAULT_NEW_FILE_SIZE,
 } from '../shared/workspace';
 import { DEFAULT_CANVAS_CONFIG, type CanvasConfig } from '../shared/protocol';
 import { MenuPopup } from './HeaderMenu';
@@ -163,11 +164,15 @@ function ToolButton(props: {
 
 type Range = { min: number; max: number; step: number; clamp(v: unknown): number };
 const NODE_SIZE: Range = { min: NODE_SIZE_FLOOR, max: NODE_SIZE_CEILING, step: 10, clamp: clampNodeSize };
+const NEW_FILE_WIDTH: Range = { ...NODE_SIZE, clamp: (v) => clampNodeSize(v, DEFAULT_NEW_FILE_SIZE.width) };
+const NEW_FILE_HEIGHT: Range = { ...NODE_SIZE, clamp: (v) => clampNodeSize(v, DEFAULT_NEW_FILE_SIZE.height) };
 const FOCUS: Range = { min: FOCUS_PERCENT_FLOOR, max: FOCUS_PERCENT_CEILING, step: 5, clamp: clampFocusPercent };
 
-const CONFIG_FIELDS: { key: 'minNodeWidth' | 'minNodeHeight' | 'focusPercent'; label: string; hint: string; range: Range }[] = [
+const CONFIG_FIELDS: { key: 'minNodeWidth' | 'minNodeHeight' | 'newFileWidth' | 'newFileHeight' | 'focusPercent'; label: string; hint: string; range: Range }[] = [
   { key: 'minNodeWidth', label: 'Minimum node width', hint: 'px, for files and snippets', range: NODE_SIZE },
   { key: 'minNodeHeight', label: 'Minimum node height', hint: 'px, for files and snippets', range: NODE_SIZE },
+  { key: 'newFileWidth', label: 'New file width', hint: 'px, for files added from the Explorer (snippets from a selection fit their lines)', range: NEW_FILE_WIDTH },
+  { key: 'newFileHeight', label: 'New file height', hint: 'px, for files added from the Explorer', range: NEW_FILE_HEIGHT },
   { key: 'focusPercent', label: 'Focus fill', hint: '% of the window a focused paper fills (higher zooms in more)', range: FOCUS },
 ];
 
