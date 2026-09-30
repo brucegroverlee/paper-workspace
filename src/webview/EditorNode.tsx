@@ -445,7 +445,8 @@ function LiveEditor(props: {
                 isWholeLine: true,
                 className: 'pw-target-line',
                 linesDecorationsClassName: 'pw-target-gutter',
-                overviewRuler: { color: 'rgba(55, 148, 255, 0.8)', position: monaco.editor.OverviewRulerLane.Full },
+                // Right lane (Git marks use the left one); the yellow of --pw-highlight (styles.css).
+                overviewRuler: { color: 'rgba(232, 197, 71, 0.8)', position: monaco.editor.OverviewRulerLane.Right },
               },
             },
           ]

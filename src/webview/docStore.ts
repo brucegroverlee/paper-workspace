@@ -1,6 +1,7 @@
 import { LineRange, clampRange, relocateRange } from '../shared/workspace';
 import type { HostToWebview, TextChange } from '../shared/protocol';
 import { monaco, monacoLanguage } from './monaco';
+import { textmateLanguage } from './textmate';
 import { host } from './vscodeApi';
 
 export interface DocEntry {
@@ -140,7 +141,7 @@ export class DocStore {
         entry.applyingRemote = false;
         entry.pendingLocal = 0;
       } else {
-        entry.model = monaco.editor.createModel(m.text, monacoLanguage(m.languageId), monaco.Uri.parse(`paper:/${m.file}`));
+        entry.model = monaco.editor.createModel(m.text, textmateLanguage(m.languageId) ?? monacoLanguage(m.languageId), monaco.Uri.parse(`paper:/${m.file}`));
         entry.model.setEOL(m.eol === '\r\n' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF);
         entry.model.onDidChangeContent((e) => this.onModelChanged(entry, e));
       }

@@ -15,6 +15,13 @@ Works in **VS Code**, **Cursor** and **Windsurf / Devin**.
 - **Targets**: a snippet can have a target (the lines it is about). It opens scrolled there, highlights it, and a
   *Back to Lx–y* pill / ◎ button returns to it after you scroll away. Pin sets the target to your selection. Targets
   follow the code as it is edited.
+- **Same colors as the text editor**: papers highlight code with the grammars of your installed extensions and your
+  color theme's token colors (including `editor.tokenColorCustomizations`), using the same engine as VS Code, and
+  follow theme changes. Semantic highlighting (colors from the language server) is not applied.
+- **Git gutter**: papers show added / modified / deleted lines like VS Code's own gutter, next to the yellow target
+  bar, and update as you type. Unstaged changes are drawn in full color and staged ones faded, as in Windsurf. Set
+  `paperWorkspace.gitDiffBase` to a branch or commit to also see (faded) what was committed since then, or to
+  `index` for unstaged changes only.
 - **Canvas**: pan, zoom, box-select, minimap, fit-all, dotted background (color set in the ⚙ panel, grey by default); follows your editor theme and font.
 - **Shapes for diagrams**: the shapes panel (toolbar, or **S**) has general shapes, flowchart symbols and block arrows,
   like draw.io. Click one to add it, or drag it onto the canvas or into a group; double-click to label it, and set its

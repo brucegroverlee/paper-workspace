@@ -3,6 +3,7 @@
 !dist/webview.js
 !dist/webview.css
 !dist/editor.worker.js
+!dist/onig.wasm
 !dist/*.ttf
 !media/**
 !package.json

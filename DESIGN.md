@@ -46,6 +46,24 @@ WorkspacesView    side panel tree (mode + papers)                    all papers;
   pushed as `diagnostics` and shown as Monaco markers. Trigger characters are a fixed common set (the API doesn't
   expose providers' own). Some servers only report problems for files open in a tab (e.g. TypeScript), so squiggles
   can be missing for files that are only on the canvas.
+* **Syntax highlighting** (`src/extension/textmate.ts`, `src/webview/textmate.ts`): `init.textmate` carries the
+  active theme's token color rules (theme file `include`s and .tmTheme `tokenColors` followed, `editor.tokenColorCustomizations`
+  appended; built-in theme settings like "Default Dark Modern" match id "Dark Modern") and every contributed grammar's
+  metadata. The webview loads `onig.wasm` (CSP `'wasm-unsafe-eval'`) and a vscode-textmate `Registry` that fetches
+  grammar files through `textmate` requests, then hands the registry's color map to `monaco.languages.setColorMap`.
+  Since that color map replaces the Monarch theme's, every language Monaco knows gets a TextMate tokens provider (its
+  grammar, or plain text like VS Code without one); models use the VS Code language id (registered on demand with
+  the extension's language-configuration.json). Theme changes re-send `textmateTheme`. If `onig.wasm` fails to
+  load, languages Monaco knows keep their Monarch tokenizers (ids it lacks, like typescriptreact, stay uncolored). The harness gets this with `scripts/harness-textmate.mjs`.
+* **Git gutter** (`src/extension/git.ts`, `src/webview/git.ts`, `src/shared/lineDiff.ts`): the host reads a file's
+  index version and its `paperWorkspace.gitDiffBase` version (HEAD by default; none for `index`) through the built-in
+  Git extension API (`repo.show(ref, path)`, '' = index) and sends `gitBase {index, ref}` when a doc opens, after
+  repository status changes and when the window or canvas regains focus (debounced, only when changed). Versions git
+  doesn't have yet are '' (all added), files outside a repository null. The webview diffs each model (Myers, after
+  trimming the common prefix/suffix) on every edit, so marks are live for unsaved text: against the index for
+  unstaged marks, and against `ref` minus those (`subtractMarks`) for staged ones, drawn faded (`.pw-git-staged`).
+  They are model decorations, so every paper of the file shows them. Git bars sit at the left of the line-decorations lane,
+  the target bar right of them; in the overview ruler Git uses the left lane and targets the right one.
 * **Explorer sync**: selecting a single paper (or clicking into one) sends `nodeFocused`; the host runs `revealInExplorer`
   (debounced) and then re-focuses the canvas and its live editor (`restoreFocus`), because that command steals focus.
 * **Saving**: Ctrl/Cmd+S inside the canvas is captured before VS Code's webview handler and saves the layout plus

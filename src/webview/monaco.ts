@@ -71,7 +71,7 @@ function cssVar(name: string, fallback: string) {
   return v || fallback;
 }
 
-function toHex(color: string, fallback: string): string {
+export function toHex(color: string, fallback: string): string {
   // Monaco only accepts #rrggbb[aa]; VS Code variables are usually hex already.
   if (/^#[0-9a-f]{3,8}$/i.test(color)) return color.length === 4 ? '#' + [...color.slice(1)].map((c) => c + c).join('') : color;
   const m = color.match(/rgba?\(([^)]+)\)/);

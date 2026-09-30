@@ -134,6 +134,19 @@
     return [{ range: { startLine: line + 1, startColumn: 1, endLine: line + 1, endColumn: 5 }, message, severity: 'warning', source: 'mock' }];
   }
 
+  // Made-up staged (index) and committed (HEAD) versions so papers show Git gutter marks: the context file has an
+  // unstaged modified line and deletion plus staged added lines; the controller is a new, untracked file.
+  const initialText = { ...files };
+  function mockGitBase(file) {
+    if (file !== ctxFile) return file in initialText ? { index: '', ref: '' } : { index: null, ref: null };
+    const index = initialText[file].split('\n');
+    index[7] = "  | 'discover-pay'"; // line 8 modified (unstaged)
+    index.splice(31, 0, '// removed comment'); // a line deleted after line 31 (unstaged)
+    const head = [...index];
+    head.splice(19, 2); // lines 20-21 added (staged)
+    return { index: index.join('\n'), ref: head.join('\n') };
+  }
+
   const deleted = {};
   let state;
   window.acquireVsCodeApi = () => ({
@@ -142,8 +155,24 @@
     postMessage(m) {
       log.push(m);
       switch (m.type) {
+        // VS Code highlighting when dist/harness/tm/ holds an init.json and grammars (see scripts/harness-textmate.mjs);
+        // Monaco's own otherwise.
         case 'ready':
-          return send({ type: 'init', workspace, settings, config, mediaRoot: '' });
+          return void fetch('./tm/init.json')
+            .then((r) => (r.ok ? r.json() : undefined))
+            .catch(() => undefined)
+            .then((textmate) => send({ type: 'init', workspace, settings, config, mediaRoot: '', textmate }));
+        case 'textmate': {
+          const { request } = m;
+          const url = request.kind === 'grammar' ? `./tm/${request.scopeName}.json` : `./tm/lang.${request.languageId}.json`;
+          return void fetch(url)
+            .then((r) => (r.ok ? r.text() : null))
+            .catch(() => null)
+            .then((text) => {
+              const result = text === null ? null : request.kind === 'grammar' ? { content: text, path: url } : JSON.parse(text);
+              send({ type: 'textmateResult', id: m.id, result });
+            });
+        }
         // Media is kept inline as data URLs (the real host writes files under .paperworkspace/media).
         case 'saveMedia':
           return send({ type: 'mediaAdded', srcs: [`data:${m.mime};base64,${m.data}`], position: m.position });
@@ -155,6 +184,7 @@
           if (m.file in deleted) return send({ type: 'doc', file: m.file, missing: true });
           if (!(m.file in files)) return send({ type: 'doc', file: m.file, error: `Cannot open ${m.file}: not found` });
           send({ type: 'doc', file: m.file, text: files[m.file], languageId: 'typescriptreact', eol: '\n', dirty: !!dirty[m.file] });
+          send({ type: 'gitBase', file: m.file, ...mockGitBase(m.file) });
           return send({ type: 'diagnostics', file: m.file, diagnostics: mockDiagnostics(files[m.file]) });
         case 'language':
           return send({ type: 'languageResult', id: m.id, result: mockLanguage(m.request) });

@@ -73,6 +73,8 @@ import { watchHostTheme } from './monaco';
 import { resetThemeColors } from './tone';
 import { folderStore } from './folderStore';
 import { handleLanguageMessage, registerLanguageBridge } from './language';
+import { handleGitMessage, registerGitGutter } from './git';
+import { handleTextmateMessage, initTextmate } from './textmate';
 import { ConfigPanel, HelpOverlay, Toolbar, clearOfToolbar, ZOOM_LIMITS, type CreateKind, type Tool } from './Toolbar';
 import { ResizeBadge } from './ResizeBadge';
 import { ShapesPanel } from './ShapesPanel';
@@ -586,6 +588,7 @@ export function App() {
     hostHandler.current = (m: HostToWebview) => {
       switch (m.type) {
         case 'init':
+          initTextmate(m.textmate); // before any doc model is created
           mediaRootRef.current = m.mediaRoot ?? '';
           setSettings(m.settings);
           if (m.config) setConfig({ ...DEFAULT_CANVAS_CONFIG, ...m.config });
@@ -629,7 +632,7 @@ export function App() {
           setNodes((ns) => [...ns]); // re-run the reveal effect even if nothing else changes
           break;
         default:
-          if (!handleLanguageMessage(m)) docStore.handleHost(m);
+          if (!handleLanguageMessage(m) && !handleGitMessage(m) && !handleTextmateMessage(m)) docStore.handleHost(m);
       }
     };
   });
@@ -646,6 +649,7 @@ export function App() {
       commit();
     };
     registerLanguageBridge();
+    registerGitGutter();
     const off = onHostMessage((m) => hostHandler.current(m));
     host.postMessage({ type: 'ready' });
     return off;

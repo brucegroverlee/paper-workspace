@@ -7,6 +7,8 @@ import { WorkspaceStore, canvasConfig, editorSettings, exists, labelFor, replace
 import type { TakeoverController } from './takeover';
 import { findDefinition } from './definition';
 import { LanguageBridge, diagnosticsFor } from './language';
+import { INDEX_REF, gitDiffRef, onGitChange, readGitBase } from './git';
+import { affectsTextmateTheme, readTextmateInit, readTextmateTheme, textmateRequest } from './textmate';
 
 export const CANVAS_VIEW_TYPE = 'paperWorkspace.canvas';
 
@@ -76,6 +78,11 @@ class CanvasSession {
   private lastWritten: string | undefined;
   private autosaveTimer: NodeJS.Timeout | undefined;
   private readonly language = new LanguageBridge();
+  /** workspace `file` key -> git versions last sent to the webview (see `gitBase`). */
+  private readonly gitBases = new Map<string, { index: string | null; ref: string | null }>();
+  private gitTimer: NodeJS.Timeout | undefined;
+  /** Color theme whose token colors were sent with `init` (undefined: Monaco highlighting). */
+  private textmateTheme: string | undefined;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -103,15 +110,23 @@ class CanvasSession {
       }),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('editor')) this.post({ type: 'settings', settings: editorSettings() });
+        if (e.affectsConfiguration('paperWorkspace.gitDiffBase')) this.scheduleGitRefresh();
+        if (affectsTextmateTheme(e)) void this.postTextmateTheme();
         if (['minNodeWidth', 'minNodeHeight', 'focusPercent', 'canvasBackground', 'showFileTitleByDefault', 'showEditorTitleByDefault'].some((k) => e.affectsConfiguration(`paperWorkspace.${k}`))) {
           this.post({ type: 'config', config: canvasConfig() });
         }
       }),
+      onGitChange(() => this.scheduleGitRefresh()),
+      // Git work done outside VS Code (terminal, another tool) can be noticed late; re-check when coming back.
+      vscode.window.onDidChangeWindowState((s) => s.focused && this.scheduleGitRefresh()),
+      panel.onDidChangeViewState((e) => e.webviewPanel.visible && this.scheduleGitRefresh()),
+      vscode.window.onDidChangeActiveColorTheme(() => void this.postTextmateTheme()),
     );
   }
 
   dispose() {
     clearTimeout(this.autosaveTimer);
+    clearTimeout(this.gitTimer);
     clearTimeout(this.revealTimer);
     this.disposables.forEach((d) => d.dispose());
   }
@@ -124,6 +139,8 @@ class CanvasSession {
       files: [...this.files.keys()],
       received: Object.fromEntries(this.received),
       lastRevealed: this.lastRevealed?.file,
+      gitBases: Object.fromEntries(this.gitBases),
+      textmateTheme: this.textmateTheme,
     };
   }
 
@@ -137,6 +154,9 @@ class CanvasSession {
     this.received.set(m.type, (this.received.get(m.type) ?? 0) + 1);
     switch (m.type) {
       case 'ready': {
+        // Read before `ready` flips, so messages posted meanwhile stay queued behind `init`.
+        const textmate = await readTextmateInit();
+        this.textmateTheme = textmate?.theme.name;
         const { workspace, error } = parseWorkspace(this.document.getText());
         this.ready = true;
         const mediaRoot = this.panel.webview.asWebviewUri(this.store.rootFor(this.document.uri)).toString();
@@ -147,6 +167,7 @@ class CanvasSession {
           settings: editorSettings(),
           config: canvasConfig(),
           mediaRoot,
+          textmate,
         } satisfies HostToWebview);
         this.queue.splice(0).forEach((q) => this.post(q));
         this.syncFolders(workspace);
@@ -274,7 +295,17 @@ class CanvasSession {
         void vscode.window.setStatusBarMessage(`Paper Workspace: copied ${reference}`, 4000);
         return reference; // for integration tests (`_simulate`)
       }
+      case 'textmate': {
+        const result = await textmateRequest(m.request);
+        this.post({ type: 'textmateResult', id: m.id, result });
+        return result; // for integration tests (`_simulate`)
+      }
     }
+  }
+
+  private async postTextmateTheme() {
+    const theme = await readTextmateTheme();
+    if (theme) this.post({ type: 'textmateTheme', theme });
   }
 
   // ---- go to definition ----------------------------------------------------------------------
@@ -312,6 +343,29 @@ class CanvasSession {
     if (!keys.length) return;
     const diagnostics = diagnosticsFor(uri);
     for (const file of keys) this.post({ type: 'diagnostics', file, diagnostics });
+  }
+
+  // ---- git gutter ----------------------------------------------------------------------------
+
+  /** Send the git versions of a file shown on the canvas, if they changed since last sent. */
+  private async postGitBase(file: string) {
+    const s = this.files.get(file);
+    if (!s) return;
+    const uri = vscode.Uri.parse(s);
+    const ref = gitDiffRef();
+    const [index, older] = await Promise.all([readGitBase(uri, INDEX_REF), ref === undefined ? null : readGitBase(uri, ref)]);
+    const bases = { index, ref: older };
+    if (this.files.get(file) !== s || JSON.stringify(this.gitBases.get(file)) === JSON.stringify(bases)) return;
+    this.gitBases.set(file, bases);
+    this.post({ type: 'gitBase', file, ...bases });
+  }
+
+  /** Repository status changes come in bursts (save, stage, commit, checkout); re-read the bases once after them. */
+  private scheduleGitRefresh() {
+    clearTimeout(this.gitTimer);
+    this.gitTimer = setTimeout(() => {
+      for (const file of this.files.keys()) void this.postGitBase(file);
+    }, 300);
   }
 
   // ---- explorer sync -------------------------------------------------------------------------
@@ -378,6 +432,9 @@ class CanvasSession {
         dirty: doc.isDirty,
       });
       this.postDiagnostics(doc.uri);
+      // A (re)loaded model needs its base again, even an unchanged one.
+      this.gitBases.delete(file);
+      void this.postGitBase(file);
     } catch (e) {
       this.post({ type: 'doc', file, error: `Cannot open ${file}: ${(e as Error).message}` });
     }
@@ -385,6 +442,7 @@ class CanvasSession {
 
   private markMissing(file: string, uri: vscode.Uri) {
     this.files.delete(file);
+    this.gitBases.delete(file);
     this.missing.set(file, uri);
     this.post({ type: 'doc', file, missing: true });
   }
@@ -621,7 +679,8 @@ class CanvasSession {
       `media-src ${webview.cspSource} data: blob:`,
       // Monaco injects <style> tags at runtime.
       `style-src ${webview.cspSource} 'unsafe-inline'`,
-      `script-src 'nonce-${nonce}' ${webview.cspSource}`,
+      // wasm-unsafe-eval: the Oniguruma regex engine that TextMate grammars need is WebAssembly.
+      `script-src 'nonce-${nonce}' 'wasm-unsafe-eval' ${webview.cspSource}`,
       `worker-src blob:`,
       `connect-src ${webview.cspSource}`,
     ].join('; ');
@@ -632,6 +691,7 @@ class CanvasSession {
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="pw-worker" content="${asset('editor.worker.js')}" />
+  <meta name="pw-onig" content="${asset('onig.wasm')}" />
   <link rel="stylesheet" href="${asset('webview.css')}" />
   <title>Paper Workspace</title>
 </head>

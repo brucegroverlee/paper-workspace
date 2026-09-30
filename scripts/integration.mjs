@@ -1,6 +1,7 @@
 // Runs test/integration/suite.cjs inside a real VS Code with an isolated profile and a throwaway workspace.
 //   node scripts/integration.mjs [--code <path to Code executable>]
 import { runTests } from '@vscode/test-electron';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -23,6 +24,11 @@ writeFileSync(join(ws, 'src', 'd.ts'), 'export const d = 1;\n');
 mkdirSync(join(ws, 'src', 'components'), { recursive: true });
 writeFileSync(join(ws, 'src', 'components', 'Banner.tsx'), 'export default function Banner() {\n  return null;\n}\n');
 writeFileSync(join(ws, 'src', 'e.ts'), "import Banner from './components/Banner';\nexport const e = Banner;\n");
+// A repository with a.ts and b.ts committed (the rest untracked), for the Git gutter.
+const git = (...args) => execFileSync('git', ['-c', 'user.name=pw', '-c', 'user.email=pw@example.com', ...args], { cwd: ws });
+git('init', '-q');
+git('add', 'src/a.ts', 'src/b.ts');
+git('commit', '-q', '-m', 'init');
 writeFileSync(join(ws, '.paperworkspace', 'main.workspace'), JSON.stringify({ version: 1, nodes: [], edges: [] }, null, 2) + '\n');
 
 const results = join(root, 'results.txt');

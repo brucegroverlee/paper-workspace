@@ -12,7 +12,7 @@
   --pw-fg: var(--vscode-foreground, #cccccc);
   --pw-muted: var(--vscode-descriptionForeground, #8b949e);
   --pw-accent: var(--vscode-focusBorder, #3794ff);
-  /* Pinned line ranges. Yellow so it isn't confused with Git's blue/green/red gutter marks. */
+  /* Pinned line ranges. Yellow so it isn't confused with the Git gutter marks (blue/green/red), shown beside it. */
   --pw-highlight: #e8c547;
   --pw-toolbar-bg: var(--vscode-editorWidget-background, #252a33);
   --pw-hover: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
@@ -433,7 +433,7 @@ body {
   z-index: 100000 !important;
 }
 
-/* Target lines: tinted background plus an accent bar in the decorations lane. */
+/* Target lines: tinted background plus an accent bar in the decorations lane, right of the Git bar. */
 .pw-target-line {
   background: color-mix(in srgb, var(--pw-highlight) 12%, transparent);
 }
@@ -441,7 +441,42 @@ body {
 .pw-target-gutter {
   background: var(--pw-highlight);
   width: 3px !important;
-  margin-left: 3px;
+  margin-left: 6px;
+}
+
+/* Git changes against `paperWorkspace.gitDiffBase`: VS Code's gutter bars, at the left edge of the decorations lane. */
+.pw-git-gutter {
+  width: 3px !important;
+}
+
+.pw-git-added {
+  background: var(--vscode-editorGutter-addedBackground, #2ea043);
+}
+
+.pw-git-modified {
+  background: var(--vscode-editorGutter-modifiedBackground, #0078d4);
+}
+
+/* Removed lines: a triangle on the line boundary, below the decorated line (above it for the first line). */
+.pw-git-deleted::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  z-index: 9;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 4px solid var(--vscode-editorGutter-deletedBackground, #f85149);
+}
+
+.pw-git-deleted.top::after {
+  bottom: auto;
+  top: -4px;
+}
+
+/* Staged changes: the same color, faded (as Windsurf / VS Code draw staged changes). Also fades the triangle. */
+.pw-git-staged {
+  opacity: 0.4;
 }
 
 /* Ctrl/Cmd held over a symbol or import path: looks like a link, as in VS Code. */
@@ -1446,7 +1481,8 @@ body {
   max-width: 460px;
   margin: auto;
   text-align: center;
-  color: var(--pw-muted);
+  /* Sits on the canvas, so follow the canvas text color (dark on light backgrounds, light on dark). */
+  color: color-mix(in srgb, var(--pw-canvas-fg) 72%, transparent);
   pointer-events: none;
   line-height: 1.6;
 }
@@ -1454,6 +1490,11 @@ body {
 .pw-empty-title {
   font-size: 16px;
   font-weight: 600;
+  color: var(--pw-canvas-fg);
+}
+
+/* Key caps keep the toolbar's background, so they keep its text color too. */
+.pw-empty kbd {
   color: var(--pw-fg);
 }
 

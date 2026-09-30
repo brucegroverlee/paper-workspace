@@ -134,6 +134,36 @@ exports.run = async function run() {
     assert.equal(editorsIn(p, 'src/components/Banner.tsx')[0].target, undefined, 'a module path opens the whole file');
   });
 
+  await step('papers get the active color theme and VS Code grammars for highlighting', async () => {
+    const s = await inspect();
+    const setting = vscode.workspace.getConfiguration('workbench').get('colorTheme');
+    assert.equal(s.canvases[0].textmateTheme, setting.replace(/^Default /, ''), `theme ${setting} resolved`);
+    const simulate = (request) => vscode.commands.executeCommand('paperWorkspace._simulate', workspaceUri.toString(), { type: 'textmate', id: 1, request });
+    const grammar = await simulate({ kind: 'grammar', scopeName: 'source.tsx' });
+    assert.ok(grammar && JSON.parse(grammar.content).scopeName === 'source.tsx', 'TSX grammar content');
+    const config = await simulate({ kind: 'languageConfiguration', languageId: 'typescriptreact' });
+    assert.ok(config && Array.isArray(config.brackets), 'language configuration parsed from JSONC');
+    assert.equal(await simulate({ kind: 'grammar', scopeName: 'source.nope' }), null);
+  });
+
+  await step('papers get the staged and committed versions of their files, updated after git add and commit', async () => {
+    const a = fs.readFileSync(src('a.ts').fsPath, 'utf8');
+    const banner = fs.readFileSync(src('components/Banner.tsx').fsPath, 'utf8');
+    const bases = (file) => inspect().then((s) => JSON.stringify(s.canvases[0].gitBases[file]));
+    const expectBases = (file, index, ref, what) => waitFor(async () => (await bases(file)) === JSON.stringify({ index, ref }), 15000, what);
+    await expectBases('src/a.ts', a, a, 'a.ts: index and HEAD');
+    await expectBases('src/components/Banner.tsx', '', '', 'untracked Banner.tsx: in neither');
+    const cp = require('node:child_process');
+    const git = (...args) => cp.execFileSync('git', ['-c', 'user.name=pw', '-c', 'user.email=pw@example.com', ...args], { cwd: ws.fsPath });
+    // The Git extension may notice outside git commands late; make it look now, as focusing the window would.
+    git('add', 'src/components/Banner.tsx');
+    await vscode.commands.executeCommand('git.refresh');
+    await expectBases('src/components/Banner.tsx', banner, '', 'staged Banner.tsx: in the index, not in HEAD');
+    git('commit', '-q', '-m', 'banner');
+    await vscode.commands.executeCommand('git.refresh');
+    await expectBases('src/components/Banner.tsx', banner, banner, 'committed Banner.tsx');
+  });
+
   await step('IntelliSense in papers comes from VS Code language providers', async () => {
     const ask = (request) =>
       vscode.commands.executeCommand('paperWorkspace._simulate', workspaceUri.toString(), { type: 'language', id: 1, file: 'src/a.ts', request });

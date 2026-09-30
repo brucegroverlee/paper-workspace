@@ -75,6 +75,16 @@
           "default": true,
           "description": "Show the title label above newly added file papers. Each paper can still show or hide its own title. Also editable from the canvas configuration panel."
         },
+        "paperWorkspace.gitDiffBase": {
+          "type": "string",
+          "default": "HEAD",
+          "markdownDescription": "Git gutter marks in papers: unstaged changes (against the staged version) are drawn in full color, like VS Code's gutter; changes against this Git ref that are not unstaged are drawn faded. `HEAD` (default) fades staged changes; a branch such as `main` or a commit hash also fades what was committed since then (useful to review work that was already committed); `index` shows unstaged changes only.",
+          "examples": [
+            "index",
+            "HEAD",
+            "main"
+          ]
+        },
         "paperWorkspace.showEditorTitleByDefault": {
           "type": "boolean",
           "default": false,
@@ -329,6 +339,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^5.9.3",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.1",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

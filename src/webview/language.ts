@@ -28,7 +28,7 @@ let nextId = 1;
 const pending = new Map<number, (result: LanguageResult) => void>();
 
 /** Files are identified by their model URI (`paper:/<workspace path>`, see DocStore). */
-function fileOf(model: monaco.editor.ITextModel): string | undefined {
+export function fileOf(model: monaco.editor.ITextModel): string | undefined {
   return model.uri.scheme === 'paper' ? model.uri.path.replace(/^\//, '') : undefined;
 }
 

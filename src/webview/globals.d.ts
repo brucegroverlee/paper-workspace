@@ -7,3 +7,6 @@ declare module 'monaco-editor/editor/standalone/browser/standaloneServices.js' {
 declare module 'monaco-editor/editor/standalone/common/standaloneTheme.js' {
   export const IStandaloneThemeService: unknown;
 }
+declare module 'monaco-editor/editor/common/languages/language.js' {
+  export const ILanguageService: unknown;
+}

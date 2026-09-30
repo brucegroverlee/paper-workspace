@@ -1,6 +1,7 @@
 // Messages exchanged between the extension host and the canvas webview.
 import { DEFAULT_CANVAS_BACKGROUND, DEFAULT_FOCUS_PERCENT, DEFAULT_MIN_NODE_SIZE, type LineRange, type WorkspaceFile, type XY } from './workspace';
 import type { DiagnosticJson, LanguageRequest, LanguageResult } from './language';
+import type { TextmateInit, TextmateRequest, TextmateResult, TextmateTheme } from './textmate';
 
 export interface EditorSettings {
   fontFamily: string;
@@ -50,6 +51,8 @@ export type HostToWebview =
       config: CanvasConfig;
       /** Webview URI of the folder workspace paths are relative to; media `src` paths resolve against it. */
       mediaRoot: string;
+      /** Grammars and theme colors for VS Code-identical highlighting; absent when unavailable (Monaco's own is used). */
+      textmate?: TextmateInit;
     }
   | { type: 'workspace'; workspace: WorkspaceFile; error?: string }
   | {
@@ -83,7 +86,17 @@ export type HostToWebview =
   /** Answer to `relinkFolder`: nodes showing `folder` now show `newFolder`. */
   | { type: 'folderRelinked'; folder: string; newFolder: string }
   /** VS Code's current problems for a file shown on the canvas. */
-  | { type: 'diagnostics'; file: string; diagnostics: DiagnosticJson[] };
+  | { type: 'diagnostics'; file: string; diagnostics: DiagnosticJson[] }
+  /**
+   * Git versions of a file, which papers diff against for gutter marks: `index` (staged text) for unstaged changes,
+   * `ref` (`paperWorkspace.gitDiffBase`, HEAD by default) for the faded staged ones. '' when git has no version
+   * of the file there (all lines added); null when there is nothing to compare with (or no `ref` configured).
+   */
+  | { type: 'gitBase'; file: string; index: string | null; ref: string | null }
+  /** The color theme (or token color customizations) changed. */
+  | { type: 'textmateTheme'; theme: TextmateTheme }
+  /** Answer to a `textmate` request. */
+  | { type: 'textmateResult'; id: number; result: TextmateResult };
 
 export type WebviewToHost =
   | { type: 'ready' }
@@ -119,4 +132,6 @@ export type WebviewToHost =
    */
   | { type: 'copyReference'; node?: { type: string; id: string } }
   /** IntelliSense for a paper, answered by VS Code's language providers with `languageResult`. */
-  | { type: 'language'; id: number; file: string; request: LanguageRequest };
+  | { type: 'language'; id: number; file: string; request: LanguageRequest }
+  /** A grammar or language configuration for syntax highlighting, answered with `textmateResult`. */
+  | { type: 'textmate'; id: number; request: TextmateRequest };

@@ -59,6 +59,9 @@ if (watch) {
 } else {
   await Promise.all(builds.map((b) => esbuild.build(b)));
 }
+// The regex engine TextMate grammars run on (webview/textmate.ts loads it from the page's `pw-onig` URL).
+mkdirSync('dist', { recursive: true });
+cpSync('node_modules/vscode-oniguruma/release/onig.wasm', 'dist/onig.wasm');
 if (harness) {
   mkdirSync('dist/harness', { recursive: true });
   cpSync('scripts/harness', 'dist/harness', { recursive: true });
