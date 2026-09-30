@@ -14,6 +14,7 @@ import {
   isInFolder,
   isLocked,
   clampRange,
+  defaultMinimap,
   editorHeightFor,
   editorsOf,
   emptyWorkspace,
@@ -175,6 +176,29 @@ describe('parseWorkspace / serializeWorkspace', () => {
     }
     expect(byId.f2).toMatchObject({ showTitle: false });
     expect(byId.e2).toMatchObject({ title: 'Parser', showTitle: false });
+    const text = serializeWorkspace(workspace);
+    expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
+  });
+
+  it('minimap: an explicit choice is kept on editors, anything else falls back to the target-based default', () => {
+    const { workspace } = parseWorkspace(
+      JSON.stringify({
+        nodes: [
+          { id: 'f1', type: 'file', file: 'src/a.ts' },
+          { id: 'e1', type: 'editor', parent: 'f1' },
+          { id: 'e2', type: 'editor', parent: 'f1', target: { start: 2, end: 4 }, minimap: true },
+          { id: 'e3', type: 'editor', parent: 'f1', minimap: false },
+          { id: 'e4', type: 'editor', parent: 'f1', minimap: 'yes' },
+        ],
+      }),
+    );
+    const saved = JSON.parse(serializeWorkspace(workspace)).nodes;
+    const byId = Object.fromEntries(saved.map((n: { id: string }) => [n.id, n]));
+    for (const id of ['e1', 'e4']) expect(byId[id]).not.toHaveProperty('minimap');
+    expect(byId.e2).toMatchObject({ minimap: true });
+    expect(byId.e3).toMatchObject({ minimap: false });
+    expect(defaultMinimap(undefined)).toBe(true);
+    expect(defaultMinimap({ start: 2, end: 4 })).toBe(false);
     const text = serializeWorkspace(workspace);
     expect(serializeWorkspace(parseWorkspace(text).workspace)).toBe(text);
   });

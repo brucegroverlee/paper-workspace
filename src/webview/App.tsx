@@ -159,7 +159,7 @@ function toRFNodes(workspace: WorkspaceFile, prev: RFNode[]): RFNode[] {
       measured: { width: n.width, height: n.height },
       dragHandle: EDITOR_DRAG_HANDLE,
       selected: selected.has(n.id),
-      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags, locked: n.locked },
+      data: { file: fileById.get(n.parent) ?? '', target: n.target, anchor: n.anchor, annotation: n.annotation, title: n.title, showTitle: n.showTitle, headerColor: n.headerColor, tags: n.tags, locked: n.locked, minimap: n.minimap },
     });
   }
   return normalizeLayout(out);
@@ -378,7 +378,7 @@ function toWorkspace(nodes: RFNode[], edges: RFEdge[], { tags, tagPlacement, sho
     const parent = n.parentId !== undefined ? { parent: n.parentId } : {};
     switch (n.type) {
       case 'editor':
-        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags, locked: n.data.locked };
+        return { ...rect, type: 'editor', parent: n.parentId!, target: n.data.target, anchor: n.data.anchor, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags, locked: n.data.locked, minimap: n.data.minimap };
       case 'file':
         return { ...rect, ...parent, type: 'file', file: n.data.file, annotation: n.data.annotation, title: n.data.title, showTitle: n.data.showTitle, headerColor: n.data.headerColor, tags: n.data.tags, color: n.data.color, locked: n.data.locked };
       case 'folder':
@@ -855,6 +855,8 @@ export function App() {
         const anchor = target && model ? model.getLineContent(target.start).trim() : undefined;
         updateNodes((ns) => ns.map((n) => (n.id === id && isEditor(n) ? { ...n, data: { ...n.data, target, anchor } } : n)));
       },
+      setMinimap: (id: string, show: boolean) =>
+        editable(id) && updateNodes((ns) => ns.map((n) => (n.id === id && isEditor(n) ? { ...n, data: { ...n.data, minimap: show } } : n))),
       addEditor: (fileNodeId: string) => {
         if (!editable(fileNodeId)) return;
         const lineHeight = settingsRef.current?.lineHeight ?? 19;

@@ -78,6 +78,8 @@ export interface EditorNode {
   tags?: string[];
   /** See FileNode: protects the snippet and its code. A combined (single-snippet) node shows the file's lock: the snippet's joins it. */
   locked?: boolean;
+  /** Whether the code minimap is shown; undefined = `defaultMinimap(target)` (on for a whole-file view, off for a target). */
+  minimap?: boolean;
   /** Relative to the parent file node. */
   position: XY;
   width: number;
@@ -300,6 +302,8 @@ export const FOCUS_PERCENT_CEILING = 100;
 export const DEFAULT_FILE_SHOW_TITLE = true;
 export const DEFAULT_EDITOR_SHOW_TITLE = true;
 export const DEFAULT_FOLDER_SHOW_TITLE = true;
+/** A snippet editor shows the minimap by default only as a whole-file view: a target is a focused excerpt. */
+export const defaultMinimap = (target: LineRange | undefined) => !target;
 export const DEFAULT_FOLDER_SIZE = { width: 720, height: 480 };
 /** Room between the papers placed side by side in a folder. */
 export const FOLDER_GAP = 40;
@@ -653,6 +657,7 @@ export function parseWorkspace(text: string): { workspace: WorkspaceFile; error?
         headerColor: color(n.headerColor),
         tags: nodeTags(n.tags),
         locked,
+        minimap: typeof n.minimap === 'boolean' ? n.minimap : undefined,
         position: xy(n.position, { x: FILE_PADDING, y: FILE_HEADER_HEIGHT }),
         width: Math.max(NODE_SIZE_FLOOR, num(n.width, DEFAULT_EDITOR_WIDTH)),
         height: Math.max(NODE_SIZE_FLOOR, num(n.height, DEFAULT_EDITOR_HEIGHT)),
@@ -889,6 +894,7 @@ export function serializeWorkspace(workspace: WorkspaceFile): string {
             ...title(n, DEFAULT_EDITOR_SHOW_TITLE),
             ...tags(n),
             ...locked(n),
+            ...(n.minimap !== undefined ? { minimap: n.minimap } : {}),
             ...rect(n),
           };
       }

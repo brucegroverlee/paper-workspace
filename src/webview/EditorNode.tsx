@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NodeResizer, useReactFlow, useStore, type NodeProps } from '@xyflow/react';
 import { moduleSpecifierAt, quotedStringAt } from '../shared/imports';
 import { baseName } from '../shared/paths';
-import { DEFAULT_EDITOR_SHOW_TITLE, type LineRange } from '../shared/workspace';
+import { DEFAULT_EDITOR_SHOW_TITLE, defaultMinimap, type LineRange } from '../shared/workspace';
 import type { EditorSettings } from '../shared/protocol';
 import { useDoc, useLocked, useWorkspace, type EditorNodeData, type RFEditorNode } from './context';
 import { monaco } from './monaco';
@@ -163,11 +163,12 @@ export function TargetControls({ id, data }: { id: string; data: EditorNodeData 
   );
 }
 
-/** Set / clear target entries for a header's "more actions" menu (none without an editor). */
+/** Set / clear target and minimap entries for a header's "more actions" menu (none without an editor). */
 export function useTargetMenuItems(editor: { id: string; data: EditorNodeData } | undefined): HeaderMenuItem[] {
   const ctx = useWorkspace();
   if (!editor) return [];
   const { id, data } = editor;
+  const minimap = data.minimap ?? defaultMinimap(data.target);
   const pinTarget = () => {
     const ed = liveEditors.get(id);
     let next = selectedLines(id);
@@ -181,6 +182,7 @@ export function useTargetMenuItems(editor: { id: string; data: EditorNodeData } 
   return [
     { icon: 'pinned', label: 'Set target to selection (or visible lines)', onClick: pinTarget },
     ...(data.target ? [{ icon: 'pin', label: 'Clear target', onClick: () => ctx.setTarget(id, undefined) }] : []),
+    { icon: 'layout-sidebar-right', label: 'Show minimap', active: minimap, onClick: () => ctx.setMinimap(id, !minimap) },
   ];
 }
 
@@ -241,6 +243,7 @@ export function EditorBody(props: { id: string; data: EditorNodeData; fileNodeId
           id={id}
           model={doc.model}
           target={data.target}
+          minimap={data.minimap ?? defaultMinimap(data.target)}
           settings={ctx.settings}
           readOnly={readOnly}
           onFocus={() => ctx.focusEditor(id)}
@@ -281,12 +284,13 @@ function LiveEditor(props: {
   id: string;
   model: monaco.editor.ITextModel;
   target: LineRange | undefined;
+  minimap: boolean;
   settings: EditorSettings;
   readOnly: boolean;
   onFocus(): void;
   onGoToDefinition(line: number, column: number): void;
 }) {
-  const { id, model, target, settings, readOnly } = props;
+  const { id, model, target, minimap, settings, readOnly } = props;
   const container = useRef<HTMLDivElement>(null);
   const overflow = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -323,7 +327,7 @@ function LiveEditor(props: {
     const ed = monaco.editor.create(el, {
       model,
       automaticLayout: false,
-      minimap: { enabled: false },
+      minimap: { enabled: minimap },
       scrollBeyondLastLine: false,
       scrollbar: { vertical: 'auto', horizontal: 'auto', alwaysConsumeMouseWheel: true, verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
       lineNumbersMinChars: LINE_NUMBERS_MIN_CHARS,
@@ -433,6 +437,10 @@ function LiveEditor(props: {
   useLayoutEffect(() => {
     editor.current?.updateOptions({ readOnly });
   }, [readOnly]);
+
+  useLayoutEffect(() => {
+    editor.current?.updateOptions({ minimap: { enabled: minimap } });
+  }, [minimap]);
 
   // Target highlight: owned by this editor, so other editors of the same file don't show it.
   useEffect(() => {

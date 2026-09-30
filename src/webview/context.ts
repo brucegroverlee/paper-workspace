@@ -21,6 +21,8 @@ export type EditorNodeData = {
   target?: LineRange;
   anchor?: string;
   annotation?: string;
+  /** See the workspace model; undefined = `defaultMinimap(target)`. */
+  minimap?: boolean;
 } & TitleData &
   TagData &
   LockData;
@@ -72,6 +74,8 @@ export interface WorkspaceActions {
   /** An editor got keyboard focus: select it and reveal its file in the Explorer. */
   focusEditor(id: string): void;
   setTarget(id: string, target: LineRange | undefined): void;
+  /** Show or hide a snippet editor's minimap. */
+  setMinimap(id: string, show: boolean): void;
   /** Add another editor (snippet) inside a file node. */
   addEditor(fileNodeId: string): void;
   remove(id: string): void;
