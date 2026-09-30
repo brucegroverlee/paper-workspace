@@ -172,6 +172,12 @@
         "category": "Paper Workspace"
       },
       {
+        "command": "paperWorkspace.refreshCanvas",
+        "title": "Refresh Canvas",
+        "category": "Paper Workspace",
+        "icon": "$(sync)"
+      },
+      {
         "command": "paperWorkspace.setTarget",
         "title": "Set as Target",
         "category": "Paper Workspace",
@@ -240,12 +246,22 @@
       ],
       "view/item/context": [
         {
+          "command": "paperWorkspace.refreshCanvas",
+          "when": "view == paperWorkspace.workspaces && viewItem =~ /^workspace/",
+          "group": "inline@1"
+        },
+        {
           "command": "paperWorkspace.setTarget",
           "when": "view == paperWorkspace.workspaces && viewItem == workspace",
-          "group": "inline"
+          "group": "inline@2"
         },
         {
           "command": "paperWorkspace.openWorkspace",
+          "when": "view == paperWorkspace.workspaces && viewItem =~ /^workspace/",
+          "group": "1_open"
+        },
+        {
+          "command": "paperWorkspace.refreshCanvas",
           "when": "view == paperWorkspace.workspaces && viewItem =~ /^workspace/",
           "group": "1_open"
         },
@@ -298,6 +314,10 @@
         {
           "command": "paperWorkspace.openWorkspace",
           "when": "false"
+        },
+        {
+          "command": "paperWorkspace.refreshCanvas",
+          "when": "activeCustomEditorId == paperWorkspace.canvas"
         },
         {
           "command": "paperWorkspace.setTarget",

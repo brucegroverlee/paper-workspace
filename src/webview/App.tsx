@@ -551,10 +551,21 @@ export function App() {
   const commit = useCallback(() => {
     clearTimeout(commitTimer.current);
     commitTimer.current = setTimeout(() => {
+      commitTimer.current = undefined;
       // Never overwrite a .workspace file we could not parse; the user may be fixing it by hand.
       if (readOnlyRef.current) return;
       host.postMessage({ type: 'update', workspace: toWorkspace(nodesRef.current, edgesRef.current, optionsRef.current) });
     }, COMMIT_DELAY);
+  }, []);
+
+  /** "Refresh Canvas": send a layout change still waiting for `commit`, then let the host reload the whole canvas. */
+  const refreshCanvas = useCallback(() => {
+    if (commitTimer.current !== undefined) {
+      clearTimeout(commitTimer.current);
+      commitTimer.current = undefined;
+      if (!readOnlyRef.current) host.postMessage({ type: 'update', workspace: toWorkspace(nodesRef.current, edgesRef.current, optionsRef.current) });
+    }
+    host.postMessage({ type: 'reload' });
   }, []);
 
   /** Apply a node update and keep trackers in sync (all structural changes go through here). */
@@ -637,6 +648,9 @@ export function App() {
           break;
         case 'pasteNodes':
           pastePendingRef.current(m.marker, m.workspace);
+          break;
+        case 'flush':
+          refreshCanvas();
           break;
         default:
           if (!handleLanguageMessage(m) && !handleGitMessage(m) && !handleTextmateMessage(m)) docStore.handleHost(m);
@@ -1376,6 +1390,9 @@ export function App() {
       tagsEntry,
       'separator',
       { icon: 'references', label: 'Copy workspace reference', onClick: () => host.postMessage({ type: 'copyReference' }) },
+      'separator',
+      // Reads the layout and every file again, for changes made outside VS Code that the canvas missed.
+      { icon: 'sync', label: 'Refresh canvas', onClick: refreshCanvas },
     ];
   };
 

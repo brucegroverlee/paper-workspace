@@ -119,6 +119,17 @@ exports.run = async function run() {
     assert.equal(disk.nodes.length, 3);
   });
 
+  await step('Refresh Canvas reloads the webview, which reads the layout and its files again', async () => {
+    const before = (await inspect()).canvases[0].received;
+    await vscode.commands.executeCommand('paperWorkspace.refreshCanvas', workspaceUri);
+    const c = await waitFor(async () => {
+      const r = (await inspect()).canvases[0];
+      return r && r.ready && r.received.ready === before.ready + 1 && r.files.includes('src/a.ts') ? r : undefined;
+    }, 15000, 'webview reloaded + openDoc');
+    assert.equal(c.received.reload, (before.reload ?? 0) + 1, 'the webview flushed its layout and asked for the reload');
+    assert.equal((await workspace()).nodes.length, 3, 'the layout is unchanged');
+  });
+
   await step('Ctrl+click on an import path adds the imported file to the canvas', async () => {
     const line = "import Banner from './components/Banner';";
     await vscode.commands.executeCommand('paperWorkspace._simulate', workspaceUri.toString(), {

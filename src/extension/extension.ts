@@ -90,6 +90,12 @@ export function activate(context: vscode.ExtensionContext) {
       if (uri) return vscode.commands.executeCommand('vscode.openWith', uri, CANVAS_VIEW_TYPE);
     }),
 
+    // From a workspace in the side panel, or the canvas in the active tab (command palette).
+    vscode.commands.registerCommand('paperWorkspace.refreshCanvas', (arg: WorkspaceArg) => {
+      const uri = workspaceFrom(arg) ?? canvas.activeWorkspace();
+      if (uri) return canvas.refresh(uri);
+    }),
+
     vscode.commands.registerCommand('paperWorkspace.setTarget', (arg: WorkspaceArg) => {
       const uri = workspaceFrom(arg);
       if (uri) return store.setTarget(uri);

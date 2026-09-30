@@ -62,6 +62,22 @@ export class CanvasProvider implements vscode.CustomTextEditorProvider {
     return this.sessions.get(workspaceUri)?.onMessage(message);
   }
 
+  /**
+   * "Refresh Canvas": reload an open canvas from the layout and the files it shows, as if it had been closed and opened
+   * again (for changes it missed). A canvas that is not open is opened, which loads it fresh anyway.
+   */
+  async refresh(workspaceUri: vscode.Uri) {
+    const session = this.sessions.get(workspaceUri.toString());
+    if (session) session.refresh();
+    else await vscode.commands.executeCommand('vscode.openWith', workspaceUri, CANVAS_VIEW_TYPE);
+  }
+
+  /** The workspace of the canvas in the active editor tab, if any. */
+  activeWorkspace(): vscode.Uri | undefined {
+    for (const [key, s] of this.sessions) if (s.active) return vscode.Uri.parse(key);
+    return undefined;
+  }
+
   /** Open a workspace in the canvas and scroll to a node once the webview is ready. */
   async reveal(workspaceUri: vscode.Uri, nodeId?: string) {
     await vscode.commands.executeCommand('vscode.openWith', workspaceUri, CANVAS_VIEW_TYPE);
@@ -83,6 +99,11 @@ class CanvasSession {
   private readonly applying = new Map<string, number>();
   private readonly editQueues = new Map<string, Promise<void>>();
   private lastWritten: string | undefined;
+  /** Layout write of the last `update`; a refresh waits for it. */
+  private writing: Promise<void> = Promise.resolve();
+  private reloadTimer: NodeJS.Timeout | undefined;
+  private reloading = false;
+  private readonly distUri: vscode.Uri;
   private autosaveTimer: NodeJS.Timeout | undefined;
   private readonly language = new LanguageBridge();
   /** workspace `file` key -> git versions last sent to the webview (see `gitBase`). */
@@ -99,7 +120,7 @@ class CanvasSession {
     private readonly document: vscode.TextDocument,
     private readonly panel: vscode.WebviewPanel,
   ) {
-    const distUri = vscode.Uri.joinPath(context.extensionUri, 'dist');
+    const distUri = (this.distUri = vscode.Uri.joinPath(context.extensionUri, 'dist'));
     // The workspace root is readable so media nodes can show images and videos stored in the workspace.
     panel.webview.options = { enableScripts: true, localResourceRoots: [distUri, store.rootFor(document.uri)] };
     panel.webview.html = this.html(distUri);
@@ -137,7 +158,47 @@ class CanvasSession {
     clearTimeout(this.autosaveTimer);
     clearTimeout(this.gitTimer);
     clearTimeout(this.revealTimer);
+    clearTimeout(this.reloadTimer);
     this.disposables.forEach((d) => d.dispose());
+  }
+
+  get active() {
+    return this.panel.active;
+  }
+
+  /** Ask the webview to send its pending layout first; it answers `reload`. Reloads anyway if it does not answer. */
+  refresh() {
+    if (!this.ready) return void this.reload();
+    this.post({ type: 'flush' });
+    clearTimeout(this.reloadTimer);
+    this.reloadTimer = setTimeout(() => void this.reload(), 1000);
+  }
+
+  /**
+   * Replace the webview with a fresh one, forgetting what was sent to the old one: it asks for the layout (`ready`) and
+   * every file (`openDoc`) again. Webview state (`getState`: viewport, minimap) survives, so the view stays where it was.
+   */
+  private async reload() {
+    clearTimeout(this.reloadTimer);
+    if (this.reloading) return;
+    this.reloading = true;
+    try {
+      // Let the old webview's layout and edits land, so the new one starts from them.
+      await this.writing.catch(() => {});
+      await Promise.all(this.editQueues.values());
+      clearTimeout(this.gitTimer);
+      clearTimeout(this.revealTimer);
+      this.ready = false;
+      this.queue.length = 0;
+      this.files.clear();
+      this.missing.clear();
+      this.folders.clear();
+      this.gitBases.clear();
+      this.editQueues.clear();
+      this.panel.webview.html = this.html(this.distUri); // a new nonce, so always a new page
+    } finally {
+      this.reloading = false;
+    }
   }
 
   private readonly received = new Map<string, number>();
@@ -184,7 +245,7 @@ class CanvasSession {
         break;
       }
       case 'update':
-        await this.writeWorkspace(serializeWorkspace(m.workspace));
+        await (this.writing = this.writeWorkspace(serializeWorkspace(m.workspace)));
         this.syncFolders(m.workspace);
         break;
       case 'openDoc':
@@ -319,6 +380,9 @@ class CanvasSession {
         if (workspace) this.post({ type: 'pasteNodes', marker: m.marker, workspace });
         return workspace; // for integration tests (`_simulate`)
       }
+      case 'reload':
+        await this.reload();
+        break;
       case 'textmate': {
         const result = await textmateRequest(m.request);
         this.post({ type: 'textmateResult', id: m.id, result });

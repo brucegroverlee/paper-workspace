@@ -108,7 +108,9 @@ export type HostToWebview =
    */
   | { type: 'clipboard'; marker: string }
   /** Answer to `pasteNodes`: the copied nodes, made fit for this workspace (paths rewritten, media copied into its folder). */
-  | { type: 'pasteNodes'; marker: string; workspace: WorkspaceFile };
+  | { type: 'pasteNodes'; marker: string; workspace: WorkspaceFile }
+  /** "Refresh Canvas" from outside the webview: send any layout change still waiting to be sent, then answer `reload`. */
+  | { type: 'flush' };
 
 export type WebviewToHost =
   | { type: 'ready' }
@@ -158,4 +160,9 @@ export type WebviewToHost =
    */
   | { type: 'copyNodes'; marker: string; workspace: WorkspaceFile }
   /** Paste the nodes copied under `marker`; answered with `pasteNodes` (nothing if something else was copied since). */
-  | { type: 'pasteNodes'; marker: string };
+  | { type: 'pasteNodes'; marker: string }
+  /**
+   * "Refresh Canvas": every layout change made so far has been sent; the host reloads the webview, which then reads the
+   * layout and every file shown on it again, as when the canvas is opened.
+   */
+  | { type: 'reload' };
