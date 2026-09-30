@@ -10,6 +10,7 @@ import { NodeHandles } from './handles';
 import { Annotation, useToggleAnnotation } from './BoardNodes';
 import { NodeTitle, useBodyColor, useHeaderColor, useTitleMenuItems } from './NodeTitle';
 import { useTagMenuItem } from './Tags';
+import { pathMenuItems } from './pathMenu';
 
 /** Smallest size that still contains every visible child editor, as "WxH" (a string keeps the selector stable). */
 function useChildrenExtent(id: string) {
@@ -55,15 +56,20 @@ export const FileNode = memo(function FileNode({ id, data, selected, width, dele
   const headerColor = useHeaderColor(id, data, single ? { alpha: 1 } : { color: data.color, alpha: colored ? 0.6 : 0.7 });
   const bodyColor = useBodyColor(id, data.color, headerColor.header.ref, !single);
   // A locked file keeps only the entries that change nothing (and Unlock, from nodeMenuItems).
-  const menuItems = (): MenuEntries => locked ? [] : [
-    ...(missing ? [] : targetItems),
-    !missing && { icon: 'add', label: 'Add a snippet editor', onClick: () => ctx.addEditor(id) },
+  const menuItems = (): MenuEntries => [
+    ...(locked ? [] : [
+      ...(missing ? [] : targetItems),
+      !missing && { icon: 'add', label: 'Add a snippet editor', onClick: () => ctx.addEditor(id) },
+      'separator',
+      { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+      tagItem,
+      ...titleItems,
+      headerColor.item,
+      ...bodyColor.items,
+    ] satisfies MenuEntries),
     'separator',
-    { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
-    tagItem,
-    ...titleItems,
-    headerColor.item,
-    ...bodyColor.items,
+    // A combined node copies its snippet's target lines too; a group of snippets just the file.
+    ...pathMenuItems(ctx, data.file, single?.data.target),
   ];
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();

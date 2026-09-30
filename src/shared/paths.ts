@@ -24,6 +24,14 @@ export function displayPath(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
+/**
+ * A copied path with the first of its target lines, `src/a.ts:12`: the form VS Code's links and quick open (Ctrl+P)
+ * all jump to (a range like `:12-20` is not recognized everywhere).
+ */
+export function withLines(path: string, lines?: { start: number; end: number }): string {
+  return lines ? `${path}:${lines.start}` : path;
+}
+
 export function baseName(p: string): string {
   const parts = displayPath(p).split('/');
   return parts[parts.length - 1] || p;

@@ -12,6 +12,7 @@ import { Annotation, useToggleAnnotation } from './BoardNodes';
 import { HeaderMenu, type HeaderMenuItem, type MenuEntries } from './HeaderMenu';
 import { NodeTitle, useHeaderColor, useTitleMenuItems } from './NodeTitle';
 import { useTagMenuItem } from './Tags';
+import { pathMenuItems } from './pathMenu';
 
 /** Below this canvas zoom, editors render as a static preview instead of a live Monaco instance. */
 const LIVE_EDITOR_MIN_ZOOM = 0.35;
@@ -97,13 +98,17 @@ export const EditorNode = memo(function EditorNode({ id, data, selected, parentI
   const tagItem = useTagMenuItem(id, data);
   const headerColor = useHeaderColor(id, data);
   // A locked snippet keeps only the entries that change nothing (and Unlock, from nodeMenuItems).
-  const menuItems = (): MenuEntries => locked ? [] : [
-    ...(missing ? [] : targetItems),
+  const menuItems = (): MenuEntries => [
+    ...(locked ? [] : [
+      ...(missing ? [] : targetItems),
+      'separator',
+      { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+      tagItem,
+      ...titleItems,
+      headerColor.item,
+    ] satisfies MenuEntries),
     'separator',
-    { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
-    tagItem,
-    ...titleItems,
-    headerColor.item,
+    ...pathMenuItems(ctx, data.file, data.target),
   ];
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();

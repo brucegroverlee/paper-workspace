@@ -3,6 +3,7 @@ import { MEDIA_EXTS, WORKSPACE_DIR, isFolderNode, isMediaPath, parseWorkspace, s
 import type { HostToWebview, TextChange, WebviewToHost } from '../shared/protocol';
 import type { LanguageRequest } from '../shared/language';
 import { formatReference } from '../shared/reference';
+import { withLines } from '../shared/paths';
 import { WorkspaceStore, canvasConfig, editorSettings, exists, labelFor, replaceDocument, updateCanvasConfig } from './workspaceStore';
 import type { TakeoverController } from './takeover';
 import { findDefinition } from './definition';
@@ -304,6 +305,12 @@ class CanvasSession {
         void vscode.window.setStatusBarMessage(`Paper Workspace: copied ${reference}`, 4000);
         return reference; // for integration tests (`_simulate`)
       }
+      case 'copyPath': {
+        const text = withLines(this.copyablePath(m.path, m.relative), m.lines);
+        await vscode.env.clipboard.writeText(text);
+        void vscode.window.setStatusBarMessage(`Paper Workspace: copied ${text}`, 4000);
+        return text; // for integration tests (`_simulate`)
+      }
       case 'copyNodes':
         await this.clipboard.copy(this.document.uri, m.marker, m.workspace);
         break;
@@ -318,6 +325,22 @@ class CanvasSession {
         return result; // for integration tests (`_simulate`)
       }
     }
+  }
+
+  /**
+   * A file or folder's path as VS Code's Explorer copies it: the OS path, or the path relative to its workspace folder
+   * (with the folder name in a multi-root window) using `explorer.copyRelativePathSeparator`.
+   */
+  private copyablePath(path: string, relative: boolean): string {
+    const uri = path ? this.store.resolveWorkspacePath(this.document.uri, path) : this.store.rootFor(this.document.uri);
+    if (!relative) return uri.scheme === 'file' ? uri.fsPath : uri.toString();
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    const multiRoot = (vscode.workspace.workspaceFolders?.length ?? 0) > 1;
+    let rel = folder && folder.uri.toString() === uri.toString() ? (multiRoot ? folder.name : '.') : vscode.workspace.asRelativePath(uri, multiRoot);
+    const setting = vscode.workspace.getConfiguration('explorer').get<string>('copyRelativePathSeparator', 'auto');
+    const sep = setting === '/' || setting === '\\' ? setting : process.platform === 'win32' ? '\\' : '/';
+    if (sep === '\\') rel = rel.replace(/\//g, '\\');
+    return rel;
   }
 
   private async postTextmateTheme() {

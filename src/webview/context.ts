@@ -129,6 +129,8 @@ export interface WorkspaceActions {
   relinkFolder(folder: string): void;
   /** Select a file or folder in VS Code's Explorer. */
   revealInExplorer(path: string): void;
+  /** Put a file or folder's path (or relative path) on the clipboard, with the target lines if given. */
+  copyPath(path: string, relative: boolean, lines?: LineRange): void;
 }
 
 export const WorkspaceContext = createContext<WorkspaceActions | null>(null);

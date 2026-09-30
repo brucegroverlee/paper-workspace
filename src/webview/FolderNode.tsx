@@ -8,6 +8,7 @@ import { NodeHandles } from './handles';
 import { Annotation, useChildrenExtent, useToggleAnnotation } from './BoardNodes';
 import { NodeTitle, useBodyColor, useHeaderColor, useTitleMenuItems } from './NodeTitle';
 import { useTagMenuItem } from './Tags';
+import { pathMenuItems } from './pathMenu';
 import { useFolderMissing } from './folderStore';
 import { toneOver } from './tone';
 
@@ -32,12 +33,16 @@ export const FolderNode = memo(function FolderNode({ id, data, selected, width, 
   const headerColor = useHeaderColor(id, data, body);
   const bodyColor = useBodyColor(id, data.color, headerColor.header.ref);
   // A locked folder keeps only the entries that change nothing (and Unlock, from nodeMenuItems).
-  const menuItems = (): MenuEntries => locked ? [] : [
-    { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
-    tagItem,
-    ...titleItems,
-    headerColor.item,
-    ...bodyColor.items,
+  const menuItems = (): MenuEntries => [
+    ...(locked ? [] : [
+      { icon: 'comment', label: data.annotation !== undefined ? 'Remove annotation' : 'Add annotation', active: data.annotation !== undefined, onClick: toggleAnnotation },
+      tagItem,
+      ...titleItems,
+      headerColor.item,
+      ...bodyColor.items,
+    ] satisfies MenuEntries),
+    'separator',
+    ...pathMenuItems(ctx, data.folder),
   ];
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();

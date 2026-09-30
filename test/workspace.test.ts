@@ -31,7 +31,7 @@ import {
   type EditorNode,
   type WorkspaceFile,
 } from '../src/shared/workspace';
-import { isAbsoluteWorkspacePath, sanitizeWorkspaceName, toWorkspacePath } from '../src/shared/paths';
+import { isAbsoluteWorkspacePath, sanitizeWorkspaceName, toWorkspacePath, withLines } from '../src/shared/paths';
 
 const sample: WorkspaceFile = {
   version: 2,
@@ -479,6 +479,12 @@ describe('paths', () => {
 
   it('sanitizes workspace names', () => {
     expect(sanitizeWorkspaceName('  auth/flow: v2.workspace ')).toBe('auth-flow- v2');
+  });
+
+  it('appends the first target line to a copied path, the form VS Code jumps to', () => {
+    expect(withLines('src/a.ts')).toBe('src/a.ts');
+    expect(withLines('src/a.ts', { start: 12, end: 12 })).toBe('src/a.ts:12');
+    expect(withLines('src\\a.ts', { start: 12, end: 20 })).toBe('src\\a.ts:12');
   });
 });
 

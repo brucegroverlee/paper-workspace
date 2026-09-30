@@ -991,6 +991,7 @@ export function App() {
       relinkFile: (file) => host.postMessage({ type: 'relinkFile', file }),
       relinkFolder: (folder) => host.postMessage({ type: 'relinkFolder', folder }),
       revealInExplorer: (path) => host.postMessage({ type: 'revealInExplorer', path }),
+      copyPath: (path, relative, lines) => host.postMessage({ type: 'copyPath', path, relative, lines }),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, config, tags, tagPlacement, showTags, customColors, themeTick, rf, setNodes, setEdges, setTags, commit, updateNodes, revealInExplorer]);

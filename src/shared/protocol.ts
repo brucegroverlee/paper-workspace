@@ -143,6 +143,11 @@ export type WebviewToHost =
    * shared/reference), so it can be pasted into an AI chat.
    */
   | { type: 'copyReference'; node?: { type: string; id: string } }
+  /**
+   * "Copy path" / "Copy relative path" of a file or folder (workspace path) like VS Code's Explorer; with `lines`, the
+   * first target line is appended (`:12`), which VS Code's links and quick open jump to.
+   */
+  | { type: 'copyPath'; path: string; relative: boolean; lines?: LineRange }
   /** IntelliSense for a paper, answered by VS Code's language providers with `languageResult`. */
   | { type: 'language'; id: number; file: string; request: LanguageRequest }
   /** A grammar or language configuration for syntax highlighting, answered with `textmateResult`. */

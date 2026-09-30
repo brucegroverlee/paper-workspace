@@ -184,6 +184,17 @@ exports.run = async function run() {
     assert.equal(await copy(undefined), 'paperworkspace:.paperworkspace/main.workspace');
   });
 
+  await step('Copy path / relative path copies a file with its first target line, the form VS Code jumps to', async () => {
+    const copy = (m) => vscode.commands.executeCommand('paperWorkspace._simulate', workspaceUri.toString(), { type: 'copyPath', ...m });
+    const sep = process.platform === 'win32' ? '\\' : '/';
+    const rel = await copy({ path: 'src/a.ts', relative: true, lines: { start: 3, end: 7 } });
+    assert.equal(rel, `src${sep}a.ts:3`);
+    assert.equal(await vscode.env.clipboard.readText(), rel);
+    assert.equal(await copy({ path: 'src/a.ts', relative: true, lines: { start: 3, end: 3 } }), `src${sep}a.ts:3`);
+    assert.equal(await copy({ path: 'src/a.ts', relative: false }), vscode.Uri.joinPath(ws, 'src', 'a.ts').fsPath);
+    assert.equal(await copy({ path: '', relative: true }), '.');
+  });
+
   await step('take-over mode: opening a file closes its text tab and adds it to the target', async () => {
     await vscode.commands.executeCommand('paperWorkspace.setMode', 'takeover');
     await vscode.window.showTextDocument(src('b.ts'), { preview: false });

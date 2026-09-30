@@ -215,6 +215,9 @@
         case 'copyReference':
           window.__lastReference = `paperworkspace:.paperworkspace/harness.workspace${m.node ? `#${m.node.type}/${m.node.id}` : ''}`;
           return;
+        case 'copyPath':
+          window.__lastPath = { path: m.path, relative: m.relative, lines: m.lines };
+          return;
         // The real host keeps copied nodes for every canvas (and adapts them to the target workspace on paste).
         case 'copyNodes':
           window.__clipboard = { marker: m.marker, workspace: m.workspace };
