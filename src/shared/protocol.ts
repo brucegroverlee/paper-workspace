@@ -128,6 +128,8 @@ export type WebviewToHost =
   | { type: 'setConfig'; config: Partial<CanvasConfig> }
   /** A single paper was selected or clicked into; the host reveals its file in the Explorer. */
   | { type: 'nodeFocused'; file: string }
+  /** An editor's context menu opened: drop a pending Explorer reveal, whose focus steal would close the menu. */
+  | { type: 'cancelReveal' }
   /** A folder paper's "Reveal in Explorer" button (workspace path; shown even with `revealInExplorer` off). */
   | { type: 'revealInExplorer'; path: string }
   /** Pick image/video files from the computer; answered with `mediaAdded`. */

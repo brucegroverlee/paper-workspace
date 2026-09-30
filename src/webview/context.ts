@@ -72,12 +72,15 @@ export interface WorkspaceActions {
   settings: EditorSettings;
   config: CanvasConfig;
   /** An editor got keyboard focus: select it and reveal its file in the Explorer. */
-  focusEditor(id: string): void;
+  /** Select the paper whose code got focus; `reveal: false` skips the Explorer reveal (it steals focus). */
+  focusEditor(id: string, reveal?: boolean): void;
+  /** Drop a pending Explorer reveal, e.g. because an editor context menu is opening. */
+  cancelReveal(): void;
   setTarget(id: string, target: LineRange | undefined): void;
   /** Show or hide a snippet editor's minimap. */
   setMinimap(id: string, show: boolean): void;
-  /** Add another editor (snippet) inside a file node. */
-  addEditor(fileNodeId: string): void;
+  /** Add another editor (snippet) inside a file node, targeting `target` or else the focused sibling's selection. */
+  addEditor(fileNodeId: string, target?: LineRange): void;
   remove(id: string): void;
   /** Change a group/text/note/shape's title, text, colors or font. */
   updateData(id: string, patch: BoardDataPatch): void;

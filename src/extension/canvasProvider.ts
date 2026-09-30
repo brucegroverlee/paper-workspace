@@ -350,6 +350,9 @@ class CanvasSession {
       case 'nodeFocused':
         this.scheduleExplorerReveal(m.file);
         break;
+      case 'cancelReveal':
+        clearTimeout(this.revealTimer);
+        break;
       case 'revealInExplorer':
         this.lastRevealed = undefined; // an explicit request always reveals
         await this.revealInExplorer(m.path);

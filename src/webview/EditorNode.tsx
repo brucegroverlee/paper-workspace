@@ -251,8 +251,10 @@ export function EditorBody(props: { id: string; data: EditorNodeData; fileNodeId
           minimap={data.minimap ?? defaultMinimap(data.target)}
           settings={ctx.settings}
           readOnly={readOnly}
-          onFocus={() => ctx.focusEditor(id)}
+          onFocus={(reveal) => ctx.focusEditor(id, reveal)}
+          onContextMenu={() => ctx.cancelReveal()}
           onGoToDefinition={(line, column) => ctx.goToDefinition(data.file, line, column)}
+          onOpenSelection={(target) => ctx.addEditor(fileNodeId, target)}
         />
       ) : (
         <Preview id={id} model={doc.model} version={doc.version} target={data.target} settings={ctx.settings} />
@@ -292,8 +294,11 @@ function LiveEditor(props: {
   minimap: boolean;
   settings: EditorSettings;
   readOnly: boolean;
-  onFocus(): void;
+  /** `reveal` is false when a right-click focused the code: the Explorer reveal would close its context menu. */
+  onFocus(reveal: boolean): void;
+  onContextMenu(): void;
   onGoToDefinition(line: number, column: number): void;
+  onOpenSelection(target: LineRange): void;
 }) {
   const { id, model, target, minimap, settings, readOnly } = props;
   const container = useRef<HTMLDivElement>(null);
@@ -304,8 +309,12 @@ function LiveEditor(props: {
   targetRef.current = target;
   const onFocusRef = useRef(props.onFocus);
   onFocusRef.current = props.onFocus;
+  const onContextMenuRef = useRef(props.onContextMenu);
+  onContextMenuRef.current = props.onContextMenu;
   const onGoToDefinitionRef = useRef(props.onGoToDefinition);
   onGoToDefinitionRef.current = props.onGoToDefinition;
+  const onOpenSelectionRef = useRef(props.onOpenSelection);
+  onOpenSelectionRef.current = props.onOpenSelection;
   const [offTarget, setOffTarget] = useState<'above' | 'below' | null>(null);
 
   const updateOffTarget = () => {
@@ -367,6 +376,19 @@ function LiveEditor(props: {
     else scrollToTarget(false);
     pendingTargetScroll.delete(id);
 
+    // Monaco closes its context menu when the window blurs, and the host's Explorer reveal briefly takes focus.
+    // So a right-click must not start a reveal, and one still pending (from a click just before) is dropped.
+    // Capture phase: this runs before Monaco's own mousedown handling focuses the editor.
+    let rightDown = false;
+    const onMouseDown = (e: MouseEvent) => (rightDown = e.button === 2);
+    const onContextMenu = () => {
+      onContextMenuRef.current();
+      // Monaco focuses the editor while handling this very event (after our capture listener); reset after it.
+      setTimeout(() => (rightDown = false));
+    };
+    el.addEventListener('mousedown', onMouseDown, true);
+    el.addEventListener('contextmenu', onContextMenu, true);
+
     const subs = [
       ed.onDidScrollChange((e) => {
         scrollMemory.set(id, { top: e.scrollTop, left: e.scrollLeft });
@@ -375,7 +397,7 @@ function LiveEditor(props: {
       ed.onDidLayoutChange(updateOffTarget),
       ed.onDidFocusEditorText(() => {
         lastFocusedEditor = id;
-        onFocusRef.current();
+        onFocusRef.current(!rightDown);
       }),
     ];
     updateOffTarget();
@@ -417,7 +439,24 @@ function LiveEditor(props: {
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKey);
 
+    // Right-click a selection to open it in a new snippet of the same file; this editor stays where it is.
+    subs.push(
+      ed.addAction({
+        id: 'paperWorkspace.openSelectionInNewEditor',
+        label: 'Open Selection in New Editor',
+        precondition: 'editorHasSelection',
+        contextMenuGroupId: 'navigation',
+        contextMenuOrder: 0,
+        run: () => {
+          const lines = selectedLines(id);
+          if (lines) onOpenSelectionRef.current(lines);
+        },
+      }),
+    );
+
     return () => {
+      el.removeEventListener('mousedown', onMouseDown, true);
+      el.removeEventListener('contextmenu', onContextMenu, true);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
       subs.forEach((s) => s.dispose());

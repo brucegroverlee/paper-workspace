@@ -838,6 +838,14 @@ export function App() {
   const lastFocused = useRef<string | null>(null);
   /** Whether the Explorer reveal interrupted typing in an editor, so `restoreFocus` should put the caret back. */
   const refocusEditor = useRef(false);
+  /** A paper selected by a right-click into its code: its selection change must not reveal (see `focusEditor`). */
+  const quietSelect = useRef<string | null>(null);
+  useEffect(() => {
+    // Any later left click is a normal selection again.
+    const onDown = (e: PointerEvent) => e.button === 0 && (quietSelect.current = null);
+    window.addEventListener('pointerdown', onDown, true);
+    return () => window.removeEventListener('pointerdown', onDown, true);
+  }, []);
   const revealInExplorer = useCallback((id: string, force = false) => {
     if (!force && lastFocused.current === id) return;
     lastFocused.current = id;
@@ -854,12 +862,14 @@ export function App() {
     return {
       settings,
       config,
-      focusEditor: (id) => {
+      focusEditor: (id, reveal = true) => {
         // Clicking into code (a nodrag area) doesn't select the node by itself; make it the selection.
         const shown = visibleNodeId(nodesRef.current, id);
         setNodes((ns) => ns.map((n) => (n.selected === (n.id === shown) ? n : { ...n, selected: n.id === shown })));
-        revealInExplorer(id, true);
+        quietSelect.current = reveal ? null : shown;
+        if (reveal) revealInExplorer(id, true);
       },
+      cancelReveal: () => host.postMessage({ type: 'cancelReveal' }),
       setTarget: (id: string, target: LineRange | undefined) => {
         if (!editable(id)) return;
         const model = (() => {
@@ -871,7 +881,7 @@ export function App() {
       },
       setMinimap: (id: string, show: boolean) =>
         editable(id) && updateNodes((ns) => ns.map((n) => (n.id === id && isEditor(n) ? { ...n, data: { ...n.data, minimap: show } } : n))),
-      addEditor: (fileNodeId: string) => {
+      addEditor: (fileNodeId: string, explicitTarget?: LineRange) => {
         if (!editable(fileNodeId)) return;
         const lineHeight = settingsRef.current?.lineHeight ?? 19;
         updateNodes((ns) => {
@@ -880,7 +890,7 @@ export function App() {
           const children = ns.filter((n): n is RFEditorNode => isEditor(n) && n.parentId === fileNodeId);
           // Seed the new snippet with the selection of the file's focused editor, if any.
           const focused = lastFocusedEditorId();
-          const target = focused && children.some((c) => c.id === focused) ? selectedLines(focused) : undefined;
+          const target = explicitTarget ?? (focused && children.some((c) => c.id === focused) ? selectedLines(focused) : undefined);
           const asWorkspace = children.map<WorkspaceEditorNode>((c) => ({
             id: c.id,
             type: 'editor',
@@ -1701,7 +1711,7 @@ export function App() {
           onMoveEnd={(_, vp) => reportViewport(vp)}
           onInit={(inst) => reportViewport(inst.getViewport())}
           onSelectionChange={({ nodes: selected }) => {
-            if (selected.length === 1) revealInExplorer(selected[0].id);
+            if (selected.length === 1 && selected[0].id !== quietSelect.current) revealInExplorer(selected[0].id);
             else lastFocused.current = null;
           }}
           // Offscreen editors unmount (their Monaco instance is disposed) and restore their scroll on return.
