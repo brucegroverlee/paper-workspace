@@ -60,6 +60,7 @@ import {
 import { isAbsoluteWorkspacePath } from '../shared/paths';
 import { DEFAULT_CANVAS_CONFIG, type CanvasConfig, type EditorSettings, type HostToWebview } from '../shared/protocol';
 import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isLockedIn, isWithin, reparent, sizeOf } from './boardLayout';
+import { mergeCopies, mergeTags, snapshotNodes } from './clipboard';
 import { GroupNode, MediaNode, ShapeNode, TextNode, editWhenMounted } from './BoardNodes';
 import { WorkspaceContext, type WorkspaceActions, type RFEdge, type RFEditorNode, type RFFileNode, type RFFolderNode, type RFGroupNode, type RFNode, type RFShapeNode } from './context';
 import { facingSides, nearestSide, nodeHandles } from './handles';
@@ -631,6 +632,12 @@ export function App() {
           requestScrollToTarget(m.id);
           setNodes((ns) => [...ns]); // re-run the reveal effect even if nothing else changes
           break;
+        case 'clipboard':
+          if (clip.current?.marker !== m.marker) clip.current = { marker: m.marker, pastes: 0 };
+          break;
+        case 'pasteNodes':
+          pastePendingRef.current(m.marker, m.workspace);
+          break;
         default:
           if (!handleLanguageMessage(m) && !handleGitMessage(m) && !handleTextmateMessage(m)) docStore.handleHost(m);
       }
@@ -1136,62 +1143,90 @@ export function App() {
     [updateNodes],
   );
 
-  // ---- copy & paste of board nodes (files, snippets and folders are not copied: each appears once per canvas) ----
+  // ---- copy & paste (between workspaces too: the host keeps the copied nodes for every canvas) ---------
 
   /**
-   * Copied nodes (a `copyTrees` snapshot) and the links between them. `marker` is what we put on the system
-   * clipboard, so a paste only uses these nodes while nothing else has been copied since (unset if the clipboard
-   * was not writable).
+   * Marker of the nodes on the shared clipboard (see `copyNodes`), which a paste compares with the system clipboard so it
+   * only pastes them while nothing else has been copied since; `pastes` / `at` cascade repeated pastes at one spot.
    */
-  const clip = useRef<{ nodes: RFNode[]; links: RFEdge[]; marker?: string; pastes: number; at?: { x: number; y: number } } | null>(null);
-  // Folders neither: a copy would show the same folder (and its files) twice.
-  const copyable = (n: RFNode) => !isTitled(n);
+  const clip = useRef<{ marker: string; pastes: number; at?: { x: number; y: number } } | null>(null);
+  /** A paste waiting for the host's `pasteNodes` answer: where it goes (canvas coordinates) and the cascade step. */
+  const pendingPaste = useRef<{ marker: string; at?: { x: number; y: number }; step: number } | null>(null);
+  /** Duplicate is for board nodes: a file or folder appears once per canvas, so its copy would merge into itself. */
+  const duplicable = (n: RFNode) => !isTitled(n);
 
-  /** Snapshot of the selected board nodes (or of `id`), with what is inside them and their links; null if there are none. */
-  const snapshotSelection = (id?: string) => {
+  /**
+   * What a menu entry or shortcut acts on: node `id` alone, unless it is part of a larger selection (then the
+   * selection); without `id`, the selection.
+   */
+  const pickedNodes = (id?: string) => {
     const ns = nodesRef.current;
-    const roots = (id ? ns.filter((n) => n.id === id) : selectionRoots(ns)).filter(copyable);
+    const selected = ns.filter((n) => n.selected);
+    if (id === undefined) return selected;
+    const node = ns.find((n) => n.id === id);
+    return node?.selected && selected.length > 1 ? selected : node ? [node] : [];
+  };
+
+  /** Snapshot of the board nodes of `picked`, with what is inside them and their links; null if there are none. */
+  const snapshotBoard = (picked: RFNode[]) => {
+    const ns = nodesRef.current;
+    const roots = picked.filter((n) => duplicable(n) && !picked.some((o) => o.id !== n.id && isWithin(ns, n.id, o.id)));
     if (!roots.length) return null;
-    const nodes = copyTrees(ns, roots.map((r) => r.id), copyable);
+    const nodes = copyTrees(ns, roots.map((r) => r.id), duplicable);
     const ids = new Set(nodes.map((n) => n.id));
     return { nodes, links: edgesRef.current.filter((e) => ids.has(e.source) && ids.has(e.target)) };
   };
 
-  /** Add copies of a snapshot moved by `offset` as the new selection; a copy landing on a group goes into it. */
+  /**
+   * Add copies of a snapshot moved by `offset` as the new selection; a copy landing on a group goes into it, and a file
+   * or folder already on the canvas takes the copy's snippets or content (see mergeCopies).
+   */
   const insertCopies = useCallback(
     (snapshot: { nodes: RFNode[]; links: RFEdge[] }, offset: { x: number; y: number }) => {
       // Copies start unlocked (a locked group's copy can be arranged right away).
       const copies = cloneTrees(snapshot.nodes, offset, (n) => newId(n.id.split('_')[0] || 'n')).map((n) => {
-        const copy = { ...n, selected: n.parentId === undefined } as RFNode;
+        const copy = { ...n } as RFNode;
         delete copy.draggable;
         delete copy.deletable;
         delete copy.className;
         return (copy.data as { locked?: boolean }).locked ? ({ ...copy, data: { ...copy.data, locked: undefined } } as RFNode) : copy;
       });
-      const roots = new Set(copies.filter((n) => n.parentId === undefined).map((n) => n.id));
       const copyOf = new Map(snapshot.nodes.map((n, i) => [n.id, copies[i].id])); // cloneTrees keeps the order
       const links = snapshot.links.map((e) => ({ ...e, id: newId('l'), source: copyOf.get(e.source)!, target: copyOf.get(e.target)!, selected: false }));
-      updateNodes((ns) => dropNodes([...ns.map((n) => (n.selected ? { ...n, selected: false } : n)), ...copies], roots));
-      if (links.length) setEdges((es) => [...es.map((e) => (e.selected ? { ...e, selected: false } : e)), ...links]);
+      const unselected = nodesRef.current.map((n) => (n.selected ? { ...n, selected: false } : n));
+      const merged = mergeCopies(unselected, copies, links);
+      updateNodes(() => dropNodes(merged.nodes, merged.roots));
+      if (merged.links.length) setEdges((es) => [...es.map((e) => (e.selected ? { ...e, selected: false } : e)), ...merged.links]);
+      if (merged.reveal) {
+        pendingReveal.current = merged.reveal;
+        setNodes((ns) => [...ns]);
+      }
     },
-    [setEdges, updateNodes],
+    [setEdges, setNodes, updateNodes],
   );
 
-  /** Copy (or cut) the selected board nodes; false if there were none, so the key keeps its usual meaning. */
+  /**
+   * Copy (or cut) the selection, or node `id` (menus): files, snippets, folders and board nodes alike, with the links
+   * between them. False if there was nothing, so the key keeps its usual meaning.
+   */
   const copySelection = useCallback(
-    (cut: boolean) => {
-      const snapshot = snapshotSelection();
-      if (!snapshot) return false;
-      const entry: NonNullable<typeof clip.current> = { ...snapshot, pastes: 0 };
-      clip.current = entry;
+    (cut: boolean, id?: string) => {
+      const ns = nodesRef.current;
+      const snapshot = snapshotNodes(ns, pickedNodes(id));
+      if (!snapshot.nodes.length) return false;
+      const ids = new Set(snapshot.nodes.map((n) => n.id));
+      const links = edgesRef.current.filter((e) => ids.has(e.source) && ids.has(e.target));
+      // The tags the copied papers use travel with them; the target workspace reuses or adds them.
+      const used = new Set(snapshot.nodes.flatMap((n) => (isTitled(n) ? n.data.tags ?? [] : [])));
+      const tags = optionsRef.current.tags.filter((t) => used.has(t.id));
+      const workspace = toWorkspace(snapshot.nodes, links, { tags, tagPlacement: DEFAULT_TAG_PLACEMENT, showTags: true, customColors: [] });
       const marker = `paper-workspace-nodes:${newId('c')}`;
-      navigator.clipboard?.writeText(marker).then(
-        () => (entry.marker = marker),
-        () => {},
-      );
+      clip.current = { marker, pastes: 0 };
+      host.postMessage({ type: 'copyNodes', marker, workspace });
       if (cut && !readOnlyRef.current) {
-        const ids = new Set(snapshot.nodes.filter((n) => n.parentId === undefined && nodesRef.current.find((x) => x.id === n.id)?.deletable !== false).map((n) => n.id));
-        updateNodes((ns) => pruneNodes(ns.filter((n) => !ids.has(n.id))));
+        const gone = new Set(snapshot.removable.filter((r) => ns.find((n) => n.id === r)?.deletable !== false && !isLockedIn(ns, r)));
+        gone.forEach((r) => docStore.untrack(r));
+        updateNodes((cur) => pruneNodes(cur.filter((n) => !gone.has(n.id))));
       }
       return true;
     },
@@ -1200,33 +1235,56 @@ export function App() {
   );
 
   /**
-   * Paste the copied nodes centered on the pointer (or, without one, next to the originals). Pasting again at
-   * the same spot cascades instead of stacking exactly.
+   * Paste the copied nodes centered on `atClient` (a menu's spot) or the pointer, or, without either, next to where
+   * they were copied. Pasting again at the same spot cascades instead of stacking exactly. The host answers with the
+   * nodes made fit for this workspace (`pasteNodes`), which pastePending adds.
    */
-  const pasteNodes = useCallback(() => {
-    const c = clip.current;
-    if (!c || readOnlyRef.current) return;
-    const roots = c.nodes.filter((n) => n.parentId === undefined);
-    const minX = Math.min(...roots.map((n) => n.position.x));
-    const minY = Math.min(...roots.map((n) => n.position.y));
-    const maxX = Math.max(...roots.map((n) => n.position.x + sizeOf(n).width));
-    const maxY = Math.max(...roots.map((n) => n.position.y + sizeOf(n).height));
-    const at = pointer.current ? dropPoint() : undefined;
-    const same = !!at && !!c.at && Math.abs(at.x - c.at.x) < 1 && Math.abs(at.y - c.at.y) < 1;
-    c.pastes = !at || same ? c.pastes + 1 : 0;
-    c.at = at;
-    const step = 24 * c.pastes;
-    const offset = at
-      ? { x: Math.round(at.x - (minX + maxX) / 2) + step, y: Math.round(at.y - (minY + maxY) / 2) + step }
-      : { x: step, y: step };
-    insertCopies(c, offset);
+  const pasteNodes = useCallback(
+    (atClient?: { x: number; y: number }) => {
+      const c = clip.current;
+      if (!c || readOnlyRef.current) return;
+      const at = atClient ? rf.screenToFlowPosition(atClient) : pointer.current ? dropPoint() : undefined;
+      const same = !!at && !!c.at && Math.abs(at.x - c.at.x) < 1 && Math.abs(at.y - c.at.y) < 1;
+      c.pastes = !at || same ? c.pastes + 1 : 0;
+      c.at = at;
+      pendingPaste.current = { marker: c.marker, at, step: 24 * c.pastes };
+      host.postMessage({ type: 'pasteNodes', marker: c.marker });
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [insertCopies]);
+    [rf],
+  );
 
-  /** Duplicate the selection (or node `id`) next to itself; the clipboard is left alone. */
+  /** The host's answer to pasteNodes: add the nodes where the paste asked for them, with their tags. */
+  const pastePending = useCallback(
+    (marker: string, workspace: WorkspaceFile) => {
+      const p = pendingPaste.current;
+      if (!p || p.marker !== marker || readOnlyRef.current) return;
+      pendingPaste.current = null;
+      const { tags, map } = mergeTags(optionsRef.current.tags, workspace.tags ?? []);
+      if (tags.length !== optionsRef.current.tags.length) setWorkspaceOptions({ tags });
+      const nodes = toRFNodes(workspace, []).map((n) =>
+        isTitled(n) && n.data.tags ? ({ ...n, data: { ...n.data, tags: [...new Set(n.data.tags.map((t) => map.get(t) ?? t))] } } as RFNode) : n,
+      );
+      const roots = nodes.filter((n) => n.parentId === undefined);
+      if (!roots.length) return;
+      const minX = Math.min(...roots.map((n) => n.position.x));
+      const minY = Math.min(...roots.map((n) => n.position.y));
+      const maxX = Math.max(...roots.map((n) => n.position.x + sizeOf(n).width));
+      const maxY = Math.max(...roots.map((n) => n.position.y + sizeOf(n).height));
+      const offset = p.at
+        ? { x: Math.round(p.at.x - (minX + maxX) / 2) + p.step, y: Math.round(p.at.y - (minY + maxY) / 2) + p.step }
+        : { x: p.step, y: p.step };
+      insertCopies({ nodes, links: toRFEdges(workspace, []) }, offset);
+    },
+    [insertCopies, setWorkspaceOptions],
+  );
+  const pastePendingRef = useRef(pastePending);
+  pastePendingRef.current = pastePending;
+
+  /** Duplicate the board nodes of the selection (or node `id`) next to themselves; the clipboard is left alone. */
   const duplicateSelection = useCallback(
     (id?: string) => {
-      const snapshot = snapshotSelection(id);
+      const snapshot = snapshotBoard(id ? nodesRef.current.filter((n) => n.id === id) : selectionRoots(nodesRef.current));
       if (snapshot && !readOnlyRef.current) insertCopies(snapshot, { x: 24, y: 24 });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1260,7 +1318,9 @@ export function App() {
         onClick: () => restackNode(id, op),
       })),
       'separator',
-      node && copyable(node) && { icon: 'copy', label: 'Duplicate', onClick: () => duplicateSelection(id) },
+      node && { icon: 'copy', label: 'Copy', onClick: () => copySelection(false, id) },
+      node && { icon: 'screen-cut', label: 'Cut', disabled: node.deletable === false || readOnlyRef.current, onClick: () => copySelection(true, id) },
+      node && duplicable(node) && { icon: 'files', label: 'Duplicate', onClick: () => duplicateSelection(id) },
       node && isGroup(node) && { icon: 'ungroup-by-ref-type', label: 'Ungroup', disabled: locked, onClick: () => actionsRef.current?.ungroup(id) },
       { icon: 'trash', label: 'Delete', danger: true, disabled: node?.deletable === false, onClick: () => actionsRef.current?.remove(id) },
     ];
@@ -1272,7 +1332,7 @@ export function App() {
    * Right-click on the empty canvas: show or hide the title of every file or every editor at once. It sets each paper's
    * own visibility (not a view filter), so single papers can be changed afterwards. Entries that change nothing are disabled.
    */
-  const paneMenuItems = (): MenuEntries => {
+  const paneMenuItems = (at: { x: number; y: number }): MenuEntries => {
     const entry = (kind: 'file' | 'editor' | 'folder', show: boolean): HeaderMenuItem => {
       const fallback = kind === 'file' ? DEFAULT_FILE_SHOW_TITLE : kind === 'folder' ? DEFAULT_FOLDER_SHOW_TITLE : DEFAULT_EDITOR_SHOW_TITLE;
       // Locked papers keep their title as it is.
@@ -1299,6 +1359,9 @@ export function App() {
     // Folder entries only once there are folders, so the menu stays short without them.
     const folders = nodesRef.current.some(isFolder);
     return [
+      // Nodes copied in this canvas or in another workspace, pasted where the menu was opened.
+      { icon: 'clippy', label: 'Paste', disabled: !clip.current || readOnlyRef.current, onClick: () => pasteNodes(at) },
+      'separator',
       entry('file', true),
       entry('editor', true),
       folders && entry('folder', true),
@@ -1334,7 +1397,7 @@ export function App() {
       if (files.length) {
         e.preventDefault();
         void saveMediaFiles(files, dropPoint());
-      } else if (clip.current && (!clip.current.marker || e.clipboardData?.getData('text/plain') === clip.current.marker)) {
+      } else if (clip.current && e.clipboardData?.getData('text/plain') === clip.current.marker) {
         e.preventDefault();
         pasteNodes();
       }
@@ -1388,7 +1451,8 @@ export function App() {
   // The drop itself (reparenting) happens with the drag's final position change in onNodesChange.
   const onNodeDragStop = useCallback(() => setDropTarget(undefined), []);
   // T = text, N = note, S = shapes panel, Ctrl/Cmd+G = group the selection, Ctrl/Cmd+Shift+G = ungroup the selected groups,
-  // Ctrl/Cmd+C / X copy / cut the selected board nodes, Ctrl/Cmd+D duplicates them (Ctrl/Cmd+V is handled with media paste).
+  // Ctrl/Cmd+C / X copy / cut the selection (to any workspace's canvas), Ctrl/Cmd+D duplicates its board nodes (Ctrl/Cmd+V
+  // is handled with media paste).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isEditableTarget(e.target) || e.altKey) return;
@@ -1416,8 +1480,20 @@ export function App() {
         togglePanel('shapes');
       }
     };
+    // Copy / cut from the host's Edit menu (macOS sends Cmd+C / X there): the system clipboard gets the marker right away.
+    const onCopy = (e: ClipboardEvent) => {
+      if (isEditableTarget(e.target) || !copySelection(e.type === 'cut')) return;
+      e.preventDefault();
+      e.clipboardData?.setData('text/plain', clip.current!.marker);
+    };
     window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    window.addEventListener('copy', onCopy);
+    window.addEventListener('cut', onCopy);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('copy', onCopy);
+      window.removeEventListener('cut', onCopy);
+    };
   }, [createNode, togglePanel, copySelection, duplicateSelection]);
 
   const shownNodes = useMemo(
@@ -1671,7 +1747,7 @@ export function App() {
         {nodeMenu && (
           <MenuPopup anchor={nodeMenu.at} items={[...(nodeMenu.items ?? []), 'separator', ...nodeMenuItems(nodeMenu.id)]} onClose={closeNodeMenu} />
         )}
-        {paneMenu && <MenuPopup anchor={paneMenu} items={paneMenuItems()} onClose={closePaneMenu} />}
+        {paneMenu && <MenuPopup anchor={paneMenu} items={paneMenuItems(paneMenu)} onClose={closePaneMenu} />}
         {help && <HelpOverlay onClose={() => setHelp(false)} />}
         {taggedNode && (
           <TagPickerDialog

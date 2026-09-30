@@ -215,6 +215,13 @@
         case 'copyReference':
           window.__lastReference = `paperworkspace:.paperworkspace/harness.workspace${m.node ? `#${m.node.type}/${m.node.id}` : ''}`;
           return;
+        // The real host keeps copied nodes for every canvas (and adapts them to the target workspace on paste).
+        case 'copyNodes':
+          window.__clipboard = { marker: m.marker, workspace: m.workspace };
+          return send({ type: 'clipboard', marker: m.marker });
+        case 'pasteNodes':
+          if (window.__clipboard?.marker === m.marker) send({ type: 'pasteNodes', marker: m.marker, workspace: window.__clipboard.workspace });
+          return;
         case 'save':
           for (const f of Object.keys(dirty)) {
             if (!dirty[f]) continue;

@@ -9,18 +9,24 @@ import { findDefinition } from './definition';
 import { LanguageBridge, diagnosticsFor } from './language';
 import { INDEX_REF, gitDiffRef, onGitChange, readGitBase } from './git';
 import { affectsTextmateTheme, readTextmateInit, readTextmateTheme, textmateRequest } from './textmate';
+import { NodeClipboard } from './clipboard';
 
 export const CANVAS_VIEW_TYPE = 'paperWorkspace.canvas';
 
 /** Custom editor for `.workspace` files: renders the canvas webview and keeps it in sync with files. */
 export class CanvasProvider implements vscode.CustomTextEditorProvider {
   private readonly sessions = new Map<string, CanvasSession>();
+  /** Copied nodes, shared by every canvas so they can be pasted into another workspace. */
+  private readonly clipboard: NodeClipboard;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly store: WorkspaceStore,
     private readonly takeover: TakeoverController,
-  ) {}
+  ) {
+    this.clipboard = new NodeClipboard(store);
+    context.subscriptions.push(this.clipboard);
+  }
 
   static register(context: vscode.ExtensionContext, store: WorkspaceStore, takeover: TakeoverController) {
     const provider = new CanvasProvider(context, store, takeover);
@@ -36,7 +42,7 @@ export class CanvasProvider implements vscode.CustomTextEditorProvider {
 
   resolveCustomTextEditor(document: vscode.TextDocument, panel: vscode.WebviewPanel) {
     const key = document.uri.toString();
-    const session = new CanvasSession(this.context, this.store, this.takeover, document, panel);
+    const session = new CanvasSession(this.context, this.store, this.takeover, this.clipboard, document, panel);
     this.sessions.set(key, session);
     panel.onDidDispose(() => {
       session.dispose();
@@ -88,6 +94,7 @@ class CanvasSession {
     private readonly context: vscode.ExtensionContext,
     private readonly store: WorkspaceStore,
     private readonly takeover: TakeoverController,
+    private readonly clipboard: NodeClipboard,
     private readonly document: vscode.TextDocument,
     private readonly panel: vscode.WebviewPanel,
   ) {
@@ -121,6 +128,7 @@ class CanvasSession {
       vscode.window.onDidChangeWindowState((s) => s.focused && this.scheduleGitRefresh()),
       panel.onDidChangeViewState((e) => e.webviewPanel.visible && this.scheduleGitRefresh()),
       vscode.window.onDidChangeActiveColorTheme(() => void this.postTextmateTheme()),
+      clipboard.onDidChange((marker) => this.post({ type: 'clipboard', marker })),
     );
   }
 
@@ -170,6 +178,7 @@ class CanvasSession {
           textmate,
         } satisfies HostToWebview);
         this.queue.splice(0).forEach((q) => this.post(q));
+        if (this.clipboard.marker) this.post({ type: 'clipboard', marker: this.clipboard.marker });
         this.syncFolders(workspace);
         break;
       }
@@ -294,6 +303,14 @@ class CanvasSession {
         await vscode.env.clipboard.writeText(reference);
         void vscode.window.setStatusBarMessage(`Paper Workspace: copied ${reference}`, 4000);
         return reference; // for integration tests (`_simulate`)
+      }
+      case 'copyNodes':
+        await this.clipboard.copy(this.document.uri, m.marker, m.workspace);
+        break;
+      case 'pasteNodes': {
+        const workspace = await this.clipboard.paste(this.document.uri, m.marker);
+        if (workspace) this.post({ type: 'pasteNodes', marker: m.marker, workspace });
+        return workspace; // for integration tests (`_simulate`)
       }
       case 'textmate': {
         const result = await textmateRequest(m.request);

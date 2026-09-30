@@ -188,6 +188,21 @@ Board nodes sit next to files and can be nested in groups (`parent` = a group id
 * **Duplicate**: *Duplicate…* on a workspace writes a copy (unsaved canvas changes included) next to it; media inside
   `.paperworkspace/` is copied into the copy's own media folder with `src`s rewritten, so the two never share files.
   Repository and absolute media stay referenced.
+* **Copy & paste** (`src/webview/clipboard.ts`, `src/extension/clipboard.ts`): Ctrl/Cmd+C / X (also the `copy` / `cut`
+  events the host's Edit menu sends) or *Copy* / *Cut* in any node menu copies the selection, or the right-clicked node
+  alone when it is not part of a larger selection: boxes with everything inside them, and snippets picked without their
+  file in a file node holding only them. The copy is sent as a `WorkspaceFile` (top-level nodes at their canvas position,
+  the links between them, the tags they use) with `copyNodes`. The host keeps one clipboard for every canvas and puts a
+  `paper-workspace-nodes:<id>` marker on the system clipboard; every canvas hears the marker (`clipboard`, also after
+  `init`). Ctrl/Cmd+V pastes only while the system clipboard still holds that marker (copying anything else wins);
+  *Paste* in the empty-canvas menu pastes where the menu opened. A paste asks the host (`pasteNodes`), which adapts the
+  copy to the target once per clipboard entry: file, folder and media paths are rewritten for a workspace with another
+  root, and media inside `.paperworkspace` (except the target's own media folder) is copied into the target's media
+  folder, like *Duplicate*. The webview then gives the copies new ids and merges them: a file already on the canvas
+  gets the pasted snippets it doesn't show yet (same target = same snippet, placed like *Add a snippet editor*), a
+  folder already there takes in the pasted content below its own (on the canvas when it is locked), links follow the
+  merged nodes, tags with the same label are reused and others added. When a paste adds nothing, the matching snippet is
+  revealed. *Duplicate* (Ctrl/Cmd+D) stays for board nodes, since a file or folder copy would merge into itself.
 * **Export / import** (`src/shared/bundle.ts`): *Export…* on a workspace writes a `.paperbundle`, a JSON file with the
   layout (unsaved canvas changes included) and the base64 bytes of every local media file it shows, keyed by `src`.
   Source files are not included; papers keep their root-relative paths. *Import Workspace…* (panel title bar, or the

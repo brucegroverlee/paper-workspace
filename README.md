@@ -36,6 +36,11 @@ Works in **VS Code**, **Cursor** and **Windsurf / Devin**.
   save dialog lets you pick its name and folder, so the work is easy to share.
 - **Duplicate**: right-click a workspace → *Duplicate…* to make an independent copy with its own images and videos,
   so you can keep the original untouched and continue working in the copy.
+- **Copy & paste between workspaces**: select items (files, snippets, folders, groups, notes, text, shapes, images)
+  and press **Ctrl+C** / **Ctrl+X** (Cmd on macOS), or right-click one → *Copy* / *Cut*. Open another workspace and press
+  **Ctrl+V** (Cmd+V), or right-click the empty canvas → *Paste*. Links between the copied items and their tags come
+  along, and images are copied into the target workspace's own media folder. A file or folder that is already on the
+  target canvas takes in the pasted snippets or content instead of showing up twice.
 - **Export / import**: right-click a workspace → *Export…* to save it as a single `.paperbundle` file with all its
   images and videos inside; *Import Workspace…* in the panel title bar adds it to another repository or machine. Code
   papers keep their relative paths, so import into a checkout of the same project.

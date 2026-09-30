@@ -101,7 +101,14 @@ export type HostToWebview =
   /** The color theme (or token color customizations) changed. */
   | { type: 'textmateTheme'; theme: TextmateTheme }
   /** Answer to a `textmate` request. */
-  | { type: 'textmateResult'; id: number; result: TextmateResult };
+  | { type: 'textmateResult'; id: number; result: TextmateResult }
+  /**
+   * Nodes were copied in some canvas (this one or another workspace's): `marker` is the text put on the system clipboard
+   * for them, so a paste only takes them while nothing else has been copied since. Also sent after `init`.
+   */
+  | { type: 'clipboard'; marker: string }
+  /** Answer to `pasteNodes`: the copied nodes, made fit for this workspace (paths rewritten, media copied into its folder). */
+  | { type: 'pasteNodes'; marker: string; workspace: WorkspaceFile };
 
 export type WebviewToHost =
   | { type: 'ready' }
@@ -139,4 +146,11 @@ export type WebviewToHost =
   /** IntelliSense for a paper, answered by VS Code's language providers with `languageResult`. */
   | { type: 'language'; id: number; file: string; request: LanguageRequest }
   /** A grammar or language configuration for syntax highlighting, answered with `textmateResult`. */
-  | { type: 'textmate'; id: number; request: TextmateRequest };
+  | { type: 'textmate'; id: number; request: TextmateRequest }
+  /**
+   * Copy (or cut) nodes to the clipboard shared by every canvas: `workspace` holds them (top-level ones at their canvas
+   * position) with the links between them and the tags they use. The host puts `marker` on the system clipboard.
+   */
+  | { type: 'copyNodes'; marker: string; workspace: WorkspaceFile }
+  /** Paste the nodes copied under `marker`; answered with `pasteNodes` (nothing if something else was copied since). */
+  | { type: 'pasteNodes'; marker: string };
