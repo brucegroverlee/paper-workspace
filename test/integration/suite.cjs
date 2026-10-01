@@ -47,7 +47,7 @@ exports.run = async function run() {
     return f ? p.nodes.filter((n) => n.type === 'editor' && n.parent === f.id) : [];
   };
 
-  await vscode.extensions.getExtension('paper-workspace.paper-workspace').activate();
+  await vscode.extensions.getExtension('GroverLee.paper-workspace').activate();
 
   await step('manual mode: Add Selection creates a node with the selected lines and opens the canvas', async () => {
     await vscode.commands.executeCommand('paperWorkspace.setMode', 'manual');

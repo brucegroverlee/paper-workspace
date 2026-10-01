@@ -2,12 +2,17 @@
   "name": "paper-workspace",
   "displayName": "Paper Workspace",
   "description": "Open code as movable, editable 'papers' on an infinite canvas. Each paper is a live Monaco editor bound to a range of lines in a real file.",
-  "version": "0.1.0",
-  "publisher": "paper-workspace",
+  "version": "1.0.0",
+  "publisher": "GroverLee",
+  "preview": true,
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/brucegroverlee/paper-workspace.git"
+  },
+  "homepage": "https://github.com/brucegroverlee/paper-workspace#readme",
+  "bugs": {
+    "url": "https://github.com/brucegroverlee/paper-workspace/issues"
   },
   "engines": {
     "vscode": "^1.90.0"
@@ -357,6 +362,7 @@
     "test": "vitest run",
     "test:integration": "npm run build && node scripts/integration.mjs",
     "dev:webview": "node scripts/build.mjs --harness && node scripts/dev-server.mjs",
+    "record:demo": "node scripts/record-demo.mjs",
     "package": "npm run build -- --production && vsce package --no-dependencies",
     "vscode:prepublish": "node scripts/build.mjs --production"
   },
@@ -369,7 +375,10 @@
     "@vscode/vsce": "^4.0.0",
     "@xyflow/react": "^12.11.6",
     "esbuild": "^0.28.2",
+    "gifenc": "^1.0.3",
     "monaco-editor": "^0.56.0",
+    "pngjs": "^7.0.0",
+    "puppeteer-core": "^25.12.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^5.9.3",

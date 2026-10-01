@@ -70,6 +70,13 @@
     tags: [{ id: 't1', label: 'Entry point', color: '#7048e8' }, { id: 't2', label: 'Do not touch', color: '#e03131' }],
     edges: [{ id: 'l1', source: 'e2', target: 'e3', sourceSide: 'right', targetSide: 'left', label: 'uses' }],
   };
+  // ?demo shows the generic sample project from demo.js instead.
+  const demo = window.__pwDemo;
+  if (demo) {
+    for (const f of Object.keys(files)) delete files[f];
+    Object.assign(files, demo.files);
+    workspace = demo.workspace;
+  }
   // ?empty opens a fresh canvas with no nodes.
   if (new URLSearchParams(location.search).has('empty')) workspace.nodes = [];
   // ?many=N adds N more papers of the first file in a grid, each linked to the next (for performance checks).
@@ -138,6 +145,7 @@
   // unstaged modified line and deletion plus staged added lines; the controller is a new, untracked file.
   const initialText = { ...files };
   function mockGitBase(file) {
+    if (demo) return demo.gitBase(file);
     if (file !== ctxFile) return file in initialText ? { index: '', ref: '' } : { index: null, ref: null };
     const index = initialText[file].split('\n');
     index[7] = "  | 'discover-pay'"; // line 8 modified (unstaged)
@@ -185,9 +193,9 @@
           if (!(m.file in files)) return send({ type: 'doc', file: m.file, error: `Cannot open ${m.file}: not found` });
           send({ type: 'doc', file: m.file, text: files[m.file], languageId: 'typescriptreact', eol: '\n', dirty: !!dirty[m.file] });
           send({ type: 'gitBase', file: m.file, ...mockGitBase(m.file) });
-          return send({ type: 'diagnostics', file: m.file, diagnostics: mockDiagnostics(files[m.file]) });
+          return send({ type: 'diagnostics', file: m.file, diagnostics: demo ? [] : mockDiagnostics(files[m.file]) });
         case 'language':
-          return send({ type: 'languageResult', id: m.id, result: mockLanguage(m.request) });
+          return send({ type: 'languageResult', id: m.id, result: demo ? null : mockLanguage(m.request) });
         case 'edit':
           files[m.file] = apply(files[m.file], m.changes);
           dirty[m.file] = true;

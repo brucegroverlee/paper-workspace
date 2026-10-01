@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "nodes": [
+    { "id": "title", "type": "text", "text": "How login works", "fontSize": 36, "fontWeight": 700,
+      "position": { "x": 0, "y": 0 }, "width": 520, "height": 50 },
+    { "id": "subtitle", "type": "text", "text": "From the POST /login route to a session cookie. Start at the top left.",
+      "color": "#3d4450", "fontSize": 16, "position": { "x": 0, "y": 56 }, "width": 720, "height": 28 },
+
+    { "id": "g_flow", "type": "group", "title": "Flow", "color": "#e5e5e5",
+      "position": { "x": 0, "y": 120 }, "width": 232, "height": 520 },
+    { "id": "s_start", "type": "shape", "parent": "g_flow", "shape": "terminator", "text": "POST /login",
+      "position": { "x": 16, "y": 52 }, "width": 200, "height": 60 },
+    { "id": "s_valid", "type": "shape", "parent": "g_flow", "shape": "diamond", "text": "Password\nvalid?",
+      "color": "#ffec99", "position": { "x": 31, "y": 172 }, "width": 170, "height": 110 },
+    { "id": "s_session", "type": "shape", "parent": "g_flow", "shape": "rectangle", "text": "Create session",
+      "position": { "x": 16, "y": 342 }, "width": 200, "height": 70 },
+    { "id": "s_db", "type": "shape", "parent": "g_flow", "shape": "cylinder", "text": "sessions",
+      "color": "#e5dbff", "position": { "x": 71, "y": 432 }, "width": 90, "height": 70 },
+
+    { "id": "f_route", "type": "file", "file": "src/routes/auth.ts",
+      "annotation": "1 · Route parses the body and delegates",
+      "position": { "x": 340, "y": 120 }, "width": 640, "height": 260 },
+    { "id": "e_route", "type": "editor", "parent": "f_route", "target": { "start": 14, "end": 26 },
+      "anchor": "router.post('/login', async (req, res) => {",
+      "position": { "x": 0, "y": 40 }, "width": 640, "height": 220 },
+
+    { "id": "f_service", "type": "file", "file": "src/services/authService.ts",
+      "position": { "x": 1080, "y": 120 }, "width": 664, "height": 576 },
+    { "id": "e_verify", "type": "editor", "parent": "f_service", "target": { "start": 31, "end": 44 },
+      "anchor": "export async function verifyPassword(email: string, password: string) {",
+      "annotation": "2 · Compares the bcrypt hash",
+      "position": { "x": 12, "y": 40 }, "width": 640, "height": 250 },
+    { "id": "e_session", "type": "editor", "parent": "f_service", "target": { "start": 60, "end": 72 },
+      "anchor": "export async function createSession(userId: string) {",
+      "annotation": "3 · Stores the session and returns its id",
+      "position": { "x": 12, "y": 336 }, "width": 640, "height": 198 },
+
+    { "id": "n_timing", "type": "note", "color": "#ffc9c9",
+      "text": "Unknown emails still run bcrypt,\nso response time doesn't reveal\nwhich accounts exist.",
+      "position": { "x": 340, "y": 460 }, "width": 260, "height": 140 }
+  ],
+  "edges": [
+    { "id": "l1", "source": "s_start", "sourceSide": "bottom", "target": "s_valid", "targetSide": "top" },
+    { "id": "l2", "source": "s_valid", "sourceSide": "bottom", "target": "s_session", "targetSide": "top", "label": "yes" },
+    { "id": "l3", "source": "s_session", "sourceSide": "bottom", "target": "s_db", "targetSide": "top", "dash": "dashed", "label": "writes" },
+    { "id": "l4", "source": "s_start", "sourceSide": "right", "target": "f_route", "targetSide": "left", "dash": "dotted", "endMarker": "none" },
+    { "id": "l5", "source": "e_route", "sourceSide": "right", "target": "e_verify", "targetSide": "left", "label": "calls" },
+    { "id": "l6", "source": "e_route", "sourceSide": "right", "target": "e_session", "targetSide": "left", "label": "then calls", "path": "rounded" },
+    { "id": "l7", "source": "n_timing", "sourceSide": "right", "target": "e_verify", "targetSide": "left", "dash": "dotted", "endMarker": "none", "color": "#6b2f2f" }
+  ]
+}
