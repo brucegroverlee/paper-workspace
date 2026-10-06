@@ -1,10 +1,27 @@
 // Connection points: every node has one on each side, and a link can join any side of one node to any side of another.
-import { memo } from 'react';
-import { Handle, Position, type NodeHandle } from '@xyflow/react';
+import { memo, useEffect } from 'react';
+import { Handle, Position, useStore, useStoreApi, type NodeHandle } from '@xyflow/react';
 import { SIDES, type Side, type XY } from '../shared/workspace';
 
-/** Size of a handle's hit area (px); styles.css draws it at this size, centered on the node's border. */
+/**
+ * Size of a handle's box (canvas px), centered on the node's border; React Flow measures it for the link ends.
+ * styles.css draws the dot and its grab area around it at a fixed screen size instead.
+ */
 export const HANDLE_SIZE = 10;
+
+/** How close (screen px) a dragged link end must come to a handle to snap to it. */
+const CONNECTION_RADIUS = 24;
+
+/**
+ * Keeps the snap distance at CONNECTION_RADIUS on screen at any zoom (React Flow takes it in canvas units, so it would
+ * shrink when zoomed out, like the handles did). Its own component: zooming re-renders only it.
+ */
+export function ConnectionRadius() {
+  const zoom = useStore((s) => s.transform[2]);
+  const store = useStoreApi();
+  useEffect(() => store.setState({ connectionRadius: CONNECTION_RADIUS / zoom }), [store, zoom]);
+  return null;
+}
 
 export const SIDE_POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left };
 

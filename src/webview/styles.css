@@ -1917,19 +1917,47 @@ kbd {
 
 /* ---- links: side handles, lines, labels and the link toolbar ---------------------------------------- */
 
-/* A dot centered on each side (the size must match HANDLE_SIZE in handles.tsx); shown on hover and while linking. */
+/* A dot centered on each side, shown on hover and while linking. The element itself keeps HANDLE_SIZE (handles.tsx) in
+   canvas units, since React Flow measures it for the link ends; the dot (::before) and its larger grab area (::after)
+   are drawn around it at a fixed screen size, like the titles, so they stay easy to grab when zoomed far out. */
 .react-flow__handle.pw-handle {
+  --pw-handle-dot: calc(14px / var(--pw-zoom, 1));
+  --pw-handle-hit: calc(24px / var(--pw-zoom, 1));
   width: 10px;
   height: 10px;
   min-width: 0;
   min-height: 0;
   box-sizing: border-box;
-  border: 2px solid var(--pw-accent);
+  border: none;
   border-radius: 50%;
-  background: var(--pw-toolbar-bg);
+  background: transparent;
   opacity: 0;
   z-index: 2;
-  transition: opacity 0.1s, transform 0.1s;
+  transition: opacity 0.1s;
+}
+
+.react-flow__handle.pw-handle::before,
+.react-flow__handle.pw-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  border-radius: 50%;
+}
+
+.react-flow__handle.pw-handle::before {
+  width: var(--pw-handle-dot);
+  height: var(--pw-handle-dot);
+  border: calc(2px / var(--pw-zoom, 1)) solid var(--pw-accent);
+  background: var(--pw-toolbar-bg);
+  pointer-events: none;
+}
+
+.react-flow__handle.pw-handle::after {
+  width: var(--pw-handle-hit);
+  height: var(--pw-handle-hit);
 }
 
 .react-flow__node:hover > * > .pw-handle,
@@ -1937,8 +1965,8 @@ kbd {
   opacity: 1;
 }
 
-.react-flow__handle.pw-handle:hover,
-.react-flow__handle.pw-handle.connectingto {
+.react-flow__handle.pw-handle:hover::before,
+.react-flow__handle.pw-handle.connectingto::before {
   background: var(--pw-accent);
 }
 

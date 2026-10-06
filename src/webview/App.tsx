@@ -63,7 +63,7 @@ import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, 
 import { mergeCopies, mergeTags, snapshotNodes } from './clipboard';
 import { GroupNode, MediaNode, ShapeNode, TextNode, editWhenMounted } from './BoardNodes';
 import { WorkspaceContext, type WorkspaceActions, type RFEdge, type RFEditorNode, type RFFileNode, type RFFolderNode, type RFGroupNode, type RFNode, type RFShapeNode } from './context';
-import { facingSides, nearestSide, nodeHandles } from './handles';
+import { ConnectionRadius, facingSides, nearestSide, nodeHandles } from './handles';
 import { LinkEdge } from './Links';
 import { docStore } from './docStore';
 import { EditorNode, editorHasFocus, focusLastEditor, lastFocusedEditorId, requestScrollToTarget, selectedLines } from './EditorNode';
@@ -1703,7 +1703,6 @@ export function App() {
           onReconnect={onReconnect}
           onReconnectStart={() => (reconnecting.current = true)}
           onReconnectEnd={onReconnectEnd}
-          connectionRadius={24}
           connectionLineStyle={{ stroke: 'var(--pw-accent)', strokeWidth: 2 }}
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
@@ -1735,6 +1734,7 @@ export function App() {
           {minimap && <MiniMap pannable zoomable position="bottom-right" nodeBorderRadius={8} />}
           {resizingId && <ResizeBadge id={resizingId} />}
           <ZoomCssVar />
+          <ConnectionRadius />
         </ReactFlow>
         <Toolbar
           tool={tool}
