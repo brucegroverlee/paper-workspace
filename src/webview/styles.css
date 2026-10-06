@@ -20,6 +20,10 @@
   --pw-error: var(--vscode-errorForeground, #f48771);
   --pw-shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
   --pw-font: var(--vscode-font-family, system-ui, -apple-system, 'Segoe UI', sans-serif);
+  /* Selection border and resize grab area, in canvas px that come out at a fixed screen size at any zoom (--pw-zoom
+     is set by ZoomCssVar), like the titles and link handles: a selected node stays easy to see and resize zoomed out. */
+  --pw-select-width: calc(3px / var(--pw-zoom, 1));
+  --pw-resize-hit: calc(14px / var(--pw-zoom, 1));
 }
 
 html,
@@ -168,7 +172,7 @@ body {
 
 .pw-file.selected {
   border-color: var(--pw-accent);
-  box-shadow: 0 0 0 1px var(--pw-accent), 0 4px 16px var(--pw-shadow);
+  box-shadow: 0 0 0 var(--pw-select-width) var(--pw-accent), 0 4px 16px var(--pw-shadow);
 }
 
 /* Combined node (file with a single editor): header + embedded editor, no inner panel. */
@@ -350,9 +354,12 @@ body {
   pointer-events: none;
 }
 
-.pw-editor.selected::after,
 .pw-editor:focus-within::after {
   box-shadow: inset 0 0 0 1px var(--pw-accent);
+}
+
+.pw-editor.selected::after {
+  box-shadow: inset 0 0 0 var(--pw-select-width) var(--pw-accent);
 }
 
 .pw-editor-header {
@@ -623,18 +630,32 @@ body {
   background: var(--vscode-button-hoverBackground, #1177bb);
 }
 
-/* Resizers (shown on the selected node). */
+/* Resizers (shown on the selected node). The lines are invisible grab strips centered on each side (the node's own
+   selection border is what shows), sized on screen so a side stays easy to grab when zoomed far out. */
 .react-flow__resize-control.line.pw-resize-line {
+  z-index: 5; /* above the editor's outline overlay and Monaco */
   border-color: transparent;
 }
 
+.react-flow__resize-control.line.pw-resize-line.left,
+.react-flow__resize-control.line.pw-resize-line.right {
+  width: var(--pw-resize-hit);
+}
+
+.react-flow__resize-control.line.pw-resize-line.top,
+.react-flow__resize-control.line.pw-resize-line.bottom {
+  height: var(--pw-resize-hit);
+}
+
+/* React Flow already scales the corner knobs up by 1/zoom when zoomed out, so their size stays in plain px. */
 .react-flow__resize-control.handle.pw-resize-handle {
-  z-index: 6; /* above the editor's outline overlay and Monaco */
-  width: 8px;
-  height: 8px;
+  z-index: 6;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
   border-radius: 2px;
   background: var(--pw-accent);
-  border: 1px solid var(--pw-canvas-bg);
+  border: 1.5px solid var(--pw-canvas-bg);
 }
 
 /* ---- folders: a file's title bar over a group-like body ---------------------------------------------- */
@@ -661,7 +682,7 @@ body {
 
 .pw-folder.selected {
   border-color: var(--pw-accent);
-  box-shadow: 0 0 0 1px var(--pw-accent), 0 4px 16px var(--pw-shadow);
+  box-shadow: 0 0 0 var(--pw-select-width) var(--pw-accent), 0 4px 16px var(--pw-shadow);
 }
 
 .react-flow__node.pw-drop-target .pw-folder {
@@ -737,7 +758,7 @@ body {
 
 .pw-group.selected {
   border-color: var(--pw-accent);
-  box-shadow: 0 0 0 1px var(--pw-accent);
+  box-shadow: 0 0 0 var(--pw-select-width) var(--pw-accent);
 }
 
 .react-flow__node.pw-drop-target .pw-group {
@@ -858,6 +879,11 @@ body {
   outline-color: var(--pw-accent);
 }
 
+.pw-text.selected {
+  outline-width: var(--pw-select-width);
+  outline-offset: calc(2px / var(--pw-zoom, 1));
+}
+
 .pw-note {
   padding: 12px 14px;
   border-radius: 4px 4px 4px 14px;
@@ -867,7 +893,7 @@ body {
 
 .pw-note.selected,
 .pw-note.editing {
-  box-shadow: 0 0 0 2px var(--pw-accent), 0 6px 16px var(--pw-shadow);
+  box-shadow: 0 0 0 var(--pw-select-width) var(--pw-accent), 0 6px 16px var(--pw-shadow);
 }
 
 .pw-text-content {
@@ -955,7 +981,7 @@ body {
 }
 
 .pw-media.selected {
-  outline: 2px solid var(--pw-accent);
+  outline: var(--pw-select-width) solid var(--pw-accent);
 }
 
 .pw-media img,
@@ -1617,6 +1643,11 @@ kbd {
   outline-color: var(--pw-accent);
 }
 
+.pw-shape.selected {
+  outline-width: var(--pw-select-width);
+  outline-offset: calc(3px / var(--pw-zoom, 1));
+}
+
 .pw-shape-svg {
   position: absolute;
   inset: 0;
@@ -1932,7 +1963,7 @@ kbd {
   border-radius: 50%;
   background: transparent;
   opacity: 0;
-  z-index: 2;
+  z-index: 6; /* above the resize strips (and Monaco) where they overlap at each side's middle */
   transition: opacity 0.1s;
 }
 
