@@ -200,6 +200,10 @@ for (const e of ws.edges) {
   if (!byId.has(e.target)) err(`edge ${e.id}: target ${e.target} does not exist`);
   for (const f of ['color', 'labelColor']) if (e[f] !== undefined && !HEX.test(e[f])) err(`edge ${e.id}: ${f} "${e[f]}" is not #rrggbb`);
   if (e.labelBackground !== undefined && !(HEX.test(e.labelBackground) || e.labelBackground === 'none')) err(`edge ${e.id}: bad labelBackground`);
+  if (e.points !== undefined && !(Array.isArray(e.points) && e.points.every((p) => Number.isFinite(p?.x) && Number.isFinite(p?.y))))
+    err(`edge ${e.id}: points must be an array of { x, y } numbers`);
+  if (e.labelAt !== undefined && !(Number.isFinite(e.labelAt) && e.labelAt >= 0 && e.labelAt <= 1)) err(`edge ${e.id}: labelAt must be a number from 0 to 1`);
+  if (e.labelOffset !== undefined && !(Number.isFinite(e.labelOffset?.x) && Number.isFinite(e.labelOffset?.y))) err(`edge ${e.id}: labelOffset must be { x, y } numbers`);
 }
 
 // against the original (edits in place)

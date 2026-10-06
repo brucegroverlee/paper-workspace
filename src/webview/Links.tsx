@@ -1,8 +1,8 @@
 // Links between nodes: a line, curve or elbow from a side of one node to a side of another, with optional arrow
 // heads, dashes and a label. Selecting a link shows a toolbar to style it.
-import { memo, useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { BaseEdge, EdgeLabelRenderer, Position, getBezierPath, getSmoothStepPath, getStraightPath, useStore, type EdgeProps } from '@xyflow/react';
+import { BaseEdge, EdgeLabelRenderer, Position, getBezierPath, getSmoothStepPath, getStraightPath, useReactFlow, useStore, useStoreApi, type EdgeProps } from '@xyflow/react';
 import {
   DEFAULT_EDGE_FONT_SIZE,
   DEFAULT_EDGE_PATH,
@@ -20,6 +20,7 @@ import {
 import { Dropdown, FontSizeField, TextEditor, ToolbarButton, ToolbarPalette, stop, type Option } from './BoardNodes';
 import { useWorkspace, type LinkData, type RFEdge } from './context';
 import { HANDLE_SIZE } from './handles';
+import { nearestOnPath, pointAt, routeLink, snapPoint, type PathSamples } from './linkRoute';
 
 /** Line color when none is set: the canvas text color, so links read on any background. */
 const AUTO_COLOR = 'var(--pw-canvas-fg)';
@@ -64,23 +65,34 @@ function dashArray(dash: EdgeDash | undefined, width: number) {
   return undefined;
 }
 
-/** SVG path, label point and marker ids of a link. */
-function linkGeometry(p: EdgeProps<RFEdge>, data: LinkData) {
+const unit = (from: XY, to: XY): XY => {
+  const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+  return { x: (to.x - from.x) / len, y: (to.y - from.y) / len };
+};
+
+/**
+ * SVG path and label point of a link going through `points` (its bend points), the middle of each stretch between
+ * them (`mids`, where a new bend point can be pulled out) and where it meets its nodes (`s`, `t`).
+ */
+function linkGeometry(p: EdgeProps<RFEdge>, data: LinkData, points: XY[] | undefined) {
   const width = data.width ?? DEFAULT_EDGE_WIDTH;
   const kind = data.path ?? DEFAULT_EDGE_PATH;
   // React Flow reports the outer edge of the handle; the node's border is half a handle further in.
   let s = move({ x: p.sourceX, y: p.sourceY }, NORMAL[p.sourcePosition], -HANDLE_SIZE / 2);
   let t = move({ x: p.targetX, y: p.targetY }, NORMAL[p.targetPosition], -HANDLE_SIZE / 2);
+  const ends = { s, t };
   const startInset = markerInset(data.startMarker ?? DEFAULT_START_MARKER, width);
   const endInset = markerInset(data.endMarker ?? DEFAULT_END_MARKER, width);
   if (kind === 'straight') {
     // A straight line meets the node along its own direction.
-    const len = Math.hypot(t.x - s.x, t.y - s.y) || 1;
-    const u = { x: (t.x - s.x) / len, y: (t.y - s.y) / len };
-    [s, t] = [move(s, u, startInset), move(t, u, -endInset)];
+    [s, t] = [move(s, unit(s, points?.[0] ?? t), startInset), move(t, unit(points?.[points.length - 1] ?? s, t), -endInset)];
   } else {
     // Curves and elbows leave and enter perpendicular to the side.
     [s, t] = [move(s, NORMAL[p.sourcePosition], startInset), move(t, NORMAL[p.targetPosition], endInset)];
+  }
+  if (points?.length) {
+    const route = routeLink(kind, s, NORMAL[p.sourcePosition], t, NORMAL[p.targetPosition], points, ROUNDED_RADIUS);
+    return { path: route.path, labelX: route.label.x, labelY: route.label.y, mids: route.mids, width, ...ends };
   }
   const params = { sourceX: s.x, sourceY: s.y, sourcePosition: p.sourcePosition, targetX: t.x, targetY: t.y, targetPosition: p.targetPosition };
   const [path, labelX, labelY] =
@@ -89,7 +101,35 @@ function linkGeometry(p: EdgeProps<RFEdge>, data: LinkData) {
       : kind === 'curve'
         ? getBezierPath(params)
         : getSmoothStepPath({ ...params, borderRadius: kind === 'rounded' ? ROUNDED_RADIUS : 0 });
-  return { path, labelX, labelY, width };
+  return { path, labelX, labelY, mids: [{ x: labelX, y: labelY }], width, ...ends };
+}
+
+/** Where a moved label sits: `at` of the way along the line (0 = source, 1 = target), shifted by `offset`. */
+type LabelPlace = { at: number; offset: XY };
+
+/** Screen pixels within which a dragged label snaps back onto the line, or to its middle. */
+const LABEL_SNAP = 10;
+
+let measurer: SVGPathElement | undefined;
+/** Points every few pixels along an SVG path, measured by a hidden path element shared by every link. */
+function samplePath(d: string): PathSamples {
+  if (!measurer) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none';
+    measurer = document.createElementNS(ns, 'path');
+    svg.append(measurer);
+    document.body.append(svg);
+  }
+  measurer.setAttribute('d', d);
+  const total = measurer.getTotalLength();
+  const n = Math.min(500, Math.max(2, Math.ceil(total / 4)));
+  const pts = Array.from({ length: n + 1 }, (_, i) => {
+    const p = measurer!.getPointAtLength((total * i) / n);
+    return { x: p.x, y: p.y };
+  });
+  return { pts, total };
 }
 
 // ---- edge ---------------------------------------------------------------------------------------------
@@ -137,7 +177,19 @@ export const LinkEdge = memo(function LinkEdge(props: EdgeProps<RFEdge>) {
   const data = props.data ?? {};
   const ctx = useWorkspace();
   const [editing, setEditing] = useState(false);
-  const { path, labelX, labelY, width } = linkGeometry(props, data);
+  // Bend points while one is being dragged; saved when the drag ends.
+  const [draft, setDraft] = useState<XY[] | null>(null);
+  const points = draft ?? data.points;
+  const { path, labelX: midX, labelY: midY, mids, width, s, t } = linkGeometry(props, data, points);
+  // Where the label sits when moved: a fraction along the line plus an offset from it (the drag's while dragging).
+  const [labelDraft, setLabelDraft] = useState<LabelPlace | null>(null);
+  const place = labelDraft ?? (data.labelAt !== undefined || data.labelOffset ? { at: data.labelAt ?? 0.5, offset: data.labelOffset ?? { x: 0, y: 0 } } : null);
+  const samples = useMemo(() => (place ? samplePath(path) : null), [path, !!place]); // eslint-disable-line react-hooks/exhaustive-deps
+  const anchor = place && samples ? pointAt(samples, place.at) : undefined;
+  const labelX = anchor ? anchor.x + place!.offset.x : midX;
+  const labelY = anchor ? anchor.y + place!.offset.y : midY;
+  const store = useStoreApi();
+  const { screenToFlowPosition } = useReactFlow();
   const color = data.color ?? AUTO_COLOR;
   const start = data.startMarker ?? DEFAULT_START_MARKER;
   const end = data.endMarker ?? DEFAULT_END_MARKER;
@@ -157,6 +209,43 @@ export const LinkEdge = memo(function LinkEdge(props: EdgeProps<RFEdge>) {
     setEditing(false);
     const label = text.trim() ? text : undefined;
     if (label !== data.label) ctx.updateLink(id, { label });
+  };
+
+  /** Pressing the label selects the link; dragging it moves the label along the line, or off it. */
+  const dragLabel = (e: ReactPointerEvent) => {
+    if (editing || e.button !== 0) return;
+    store.getState().addSelectedEdges([id]);
+    const line = samplePath(path);
+    const from = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const grab = { x: from.x - labelX, y: from.y - labelY };
+    const start = { x: e.clientX, y: e.clientY };
+    let moved: LabelPlace | null = null;
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) return;
+      const zoom = store.getState().transform[2];
+      const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
+      const center = { x: p.x - grab.x, y: p.y - grab.y };
+      let { at, point } = nearestOnPath(line, center);
+      // Snap back onto the line, and to its middle.
+      let offset = { x: Math.round(center.x - point.x), y: Math.round(center.y - point.y) };
+      if (Math.hypot(offset.x, offset.y) * zoom < LABEL_SNAP) offset = { x: 0, y: 0 };
+      if (Math.abs(at - 0.5) * line.total * zoom < LABEL_SNAP) at = 0.5;
+      moved = { at: Math.round(at * 1000) / 1000, offset };
+      setLabelDraft(moved);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      if (moved) {
+        const onLine = !moved.offset.x && !moved.offset.y;
+        ctx.updateLink(id, { labelAt: moved.at === 0.5 ? undefined : moved.at, labelOffset: onLine ? undefined : moved.offset });
+      }
+      setLabelDraft(null);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   };
 
   return (
@@ -194,15 +283,105 @@ export const LinkEdge = memo(function LinkEdge(props: EdgeProps<RFEdge>) {
               fontSize,
               fontWeight,
             }}
+            onPointerDown={dragLabel}
           >
             {editing ? <TextEditor value={data.label ?? ''} onDone={finish} /> : data.label}
           </div>
         </EdgeLabelRenderer>
       )}
-      {selected && !editing && <LinkToolbar id={id} data={data} x={labelX} y={labelY} lift={data.label ? labelHeight / 2 : 0} onEditLabel={() => setEditing(true)} />}
+      {selected && !editing && (
+        <LinkBends
+          points={points ?? []}
+          mids={mids}
+          s={s}
+          t={t}
+          onDraft={setDraft}
+          onDone={(next) => ctx.updateLink(id, { points: next.length ? next : undefined })}
+        />
+      )}
+      {selected && !editing && !draft && !labelDraft && (
+        <LinkToolbar id={id} data={data} x={labelX} y={labelY} lift={data.label ? labelHeight / 2 : 0} onEditLabel={() => setEditing(true)} />
+      )}
     </g>
   );
 });
+
+// ---- bend points --------------------------------------------------------------------------------------
+
+/** Screen pixels within which a dragged bend point lines up with its neighbors. */
+const SNAP = 8;
+
+/**
+ * Handles on a selected link: one on each bend point (drag to move, double-click to remove) and a smaller one in the
+ * middle of each stretch (drag to add a bend point there), like draw.io's waypoints. Rendered in screen coordinates on
+ * the React Flow container, like the toolbar, so they keep their size and sit above the nodes.
+ */
+function LinkBends(props: { points: XY[]; mids: XY[]; s: XY; t: XY; onDraft(points: XY[] | null): void; onDone(points: XY[]): void }) {
+  const { points, mids } = props;
+  const [tx, ty, zoom] = useStore((s) => s.transform);
+  const alone = useStore(onlyOneLinkSelected);
+  const container = useStore((s) => s.domNode);
+  const { screenToFlowPosition } = useReactFlow();
+  const latest = useRef(props);
+  latest.current = props;
+  if (!alone || !container) return null;
+
+  /** Drag bend point `index`; `insert` = pull a new one out of the line there (only once the pointer moves). */
+  const drag = (e: ReactPointerEvent, index: number, insert: boolean) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const start = { x: e.clientX, y: e.clientY };
+    const base = points;
+    let moved: XY[] | null = null;
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) return;
+      const next = insert ? [...base.slice(0, index), start, ...base.slice(index)] : base.slice();
+      const { s, t } = latest.current;
+      const neighbors = [next[index - 1] ?? s, next[index + 1] ?? t];
+      const p = snapPoint(screenToFlowPosition({ x: ev.clientX, y: ev.clientY }), neighbors, SNAP / zoom);
+      next[index] = { x: Math.round(p.x), y: Math.round(p.y) };
+      moved = next;
+      latest.current.onDraft(next);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      if (moved) latest.current.onDone(moved);
+      latest.current.onDraft(null);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
+  const at = (p: XY): CSSProperties => ({ transform: `translate(${p.x * zoom + tx}px, ${p.y * zoom + ty}px) translate(-50%, -50%)` });
+  // A stretch too short to grab in the middle gets no handle there (it would cover the bend points).
+  const roomy = (m: XY, i: number) => [points[i - 1] ?? props.s, points[i] ?? props.t].every((p) => Math.hypot(p.x - m.x, p.y - m.y) * zoom > 14);
+  return createPortal(
+    <div className="pw-link-bends nodrag nopan" onClick={stop} onDoubleClick={stop} onContextMenu={stop}>
+      {mids.map(
+        (m, i) =>
+          roomy(m, i) && <div key={`m${i}`} className="pw-link-bend add" style={at(m)} title="Drag to bend the link" onPointerDown={(e) => drag(e, i, true)} />,
+      )}
+      {points.map((p, i) => (
+        <div
+          key={`p${i}`}
+          className="pw-link-bend"
+          style={at(p)}
+          title="Drag to move · double-click to remove"
+          onPointerDown={(e) => drag(e, i, false)}
+          onDoubleClick={(e) => {
+            stop(e);
+            props.onDone(points.filter((_, j) => j !== i));
+          }}
+        />
+      ))}
+    </div>,
+    container,
+  );
+}
 
 // ---- toolbar ------------------------------------------------------------------------------------------
 
@@ -336,6 +515,11 @@ function LinkToolbar(props: { id: string; data: LinkData; x: number; y: number; 
         {dropdown('width', 'Thickness', data.width ?? DEFAULT_EDGE_WIDTH, WIDTH_OPTIONS, (w) => update({ width: w === DEFAULT_EDGE_WIDTH ? undefined : w }))}
         {dropdown('dash', 'Line style', data.dash ?? 'solid', DASH_OPTIONS, (dash) => update({ dash: dash === 'solid' ? undefined : dash }))}
         {dropdown('path', 'Path', data.path ?? DEFAULT_EDGE_PATH, PATH_OPTIONS, (path) => update({ path: path === DEFAULT_EDGE_PATH ? undefined : path }))}
+        {data.points?.length ? (
+          <ToolbarButton label="Reset path (remove bend points)" onClick={() => update({ points: undefined })}>
+            <span className="codicon codicon-discard" />
+          </ToolbarButton>
+        ) : null}
         <span className="pw-node-toolbar-sep" />
         {dropdown('start', 'Start', data.startMarker ?? DEFAULT_START_MARKER, START_OPTIONS, (m) => update({ startMarker: m === DEFAULT_START_MARKER ? undefined : m }))}
         <ToolbarButton label="Reverse direction" onClick={() => ctx.reverseLink(id)}>
@@ -346,6 +530,11 @@ function LinkToolbar(props: { id: string; data: LinkData; x: number; y: number; 
         <ToolbarButton label={data.label ? 'Edit label (or double-click the link)' : 'Add a label (or double-click the link)'} onClick={props.onEditLabel}>
           <span className="codicon codicon-whole-word" />
         </ToolbarButton>
+        {data.label && (data.labelAt !== undefined || data.labelOffset) ? (
+          <ToolbarButton label="Reset label position (back to the middle of the line)" onClick={() => update({ labelAt: undefined, labelOffset: undefined })}>
+            <span className="codicon codicon-target" />
+          </ToolbarButton>
+        ) : null}
         <ToolbarButton label="Label color" active={open === 'labelColor'} onClick={() => toggle('labelColor')}>
           <span className="pw-text-color-icon">
             A

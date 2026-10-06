@@ -970,7 +970,23 @@ export function App() {
       },
       reverseLink: (id) => {
         setEdges((es) =>
-          es.map((e) => (e.id === id ? { ...e, source: e.target, target: e.source, sourceHandle: e.targetHandle, targetHandle: e.sourceHandle } : e)),
+          es.map((e) =>
+            e.id === id
+              ? {
+                  ...e,
+                  source: e.target,
+                  target: e.source,
+                  sourceHandle: e.targetHandle,
+                  targetHandle: e.sourceHandle,
+                  // The line and its label stay where they are.
+                  data: e.data && {
+                    ...e.data,
+                    points: e.data.points && [...e.data.points].reverse(),
+                    labelAt: e.data.labelAt !== undefined ? 1 - e.data.labelAt : undefined,
+                  },
+                }
+              : e,
+          ),
         );
         commit();
       },
@@ -1219,7 +1235,14 @@ export function App() {
         return (copy.data as { locked?: boolean }).locked ? ({ ...copy, data: { ...copy.data, locked: undefined } } as RFNode) : copy;
       });
       const copyOf = new Map(snapshot.nodes.map((n, i) => [n.id, copies[i].id])); // cloneTrees keeps the order
-      const links = snapshot.links.map((e) => ({ ...e, id: newId('l'), source: copyOf.get(e.source)!, target: copyOf.get(e.target)!, selected: false }));
+      const links = snapshot.links.map((e) => ({
+        ...e,
+        id: newId('l'),
+        source: copyOf.get(e.source)!,
+        target: copyOf.get(e.target)!,
+        selected: false,
+        data: e.data?.points ? { ...e.data, points: e.data.points.map((p) => ({ x: p.x + offset.x, y: p.y + offset.y })) } : e.data,
+      }));
       const unselected = nodesRef.current.map((n) => (n.selected ? { ...n, selected: false } : n));
       const merged = mergeCopies(unselected, copies, links);
       updateNodes(() => dropNodes(merged.nodes, merged.roots));
@@ -1471,8 +1494,30 @@ export function App() {
     const ids = new Set(dragged.map((n) => n.id));
     return dragged.filter((n) => isBox(n) && !(n.parentId !== undefined && ids.has(n.parentId)));
   };
+  /** Where the grabbed node was at the last drag event, to move the bend points of links carried along with it. */
+  const dragFrom = useRef<{ id: string; x: number; y: number } | null>(null);
+  const onNodeDragStart = useCallback((_: unknown, node: RFNode) => {
+    dragFrom.current = { id: node.id, ...node.position };
+  }, []);
   const onNodeDrag = useCallback((_: unknown, node: RFNode, dragged: RFNode[]) => {
     const roots = draggedRoots(dragged);
+    // A link whose two ends both move keeps its shape: its bend points move with them.
+    const from = dragFrom.current;
+    if (from?.id === node.id && (node.position.x !== from.x || node.position.y !== from.y)) {
+      const dx = node.position.x - from.x;
+      const dy = node.position.y - from.y;
+      dragFrom.current = { id: node.id, ...node.position };
+      const ns = nodesRef.current;
+      const carried = (id: string) => roots.some((r) => r.id === id || isWithin(ns, id, r.id));
+      if (edgesRef.current.some((e) => e.data?.points && carried(e.source) && carried(e.target)))
+        setEdges((es) =>
+          es.map((e) =>
+            e.data?.points && carried(e.source) && carried(e.target)
+              ? { ...e, data: { ...e.data, points: e.data.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) } }
+              : e,
+          ),
+        );
+    }
     const lead = roots.find((n) => n.id === node.id) ?? roots[0];
     const target = lead ? dropTargetFor(nodesRef.current, lead.id, new Set(roots.map((n) => n.id))) : undefined;
     setDropTarget((t) => (t === target ? t : target));
@@ -1704,6 +1749,7 @@ export function App() {
           onReconnectStart={() => (reconnecting.current = true)}
           onReconnectEnd={onReconnectEnd}
           connectionLineStyle={{ stroke: 'var(--pw-accent)', strokeWidth: 2 }}
+          onNodeDragStart={onNodeDragStart}
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           defaultViewport={initialViewport}

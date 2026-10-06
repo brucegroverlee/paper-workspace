@@ -99,12 +99,15 @@ Editor height for `n` target lines: `30 + (n + 2) * 19 + 8`, clamped 150–560. 
 { "id": "l1", "source": "<node id>", "target": "<node id>",   // any node kind
   "sourceSide": "right", "targetSide": "left",                  // top|right|bottom|left; omitted = auto
   "path": "curve",            // curve (default) | straight | step | rounded
+  "points": [{ "x": 640, "y": 120 }],  // optional bend points (canvas coordinates), source → target order
   "color": "#27405f", "width": 2,
   "dash": "solid",            // solid (default) | dashed | dotted
   "startMarker": "none",      // none (default) | arrow | open-arrow | circle | diamond
   "endMarker": "arrow",       // arrow (default)
   "label": "calls", "labelColor": "#…", "fontSize": 14, "fontWeight": 600,
-  "labelBackground": "#ffec99" }   // "none" = transparent
+  "labelBackground": "#ffec99",    // "none" = transparent
+  "labelAt": 0.25,            // 0 (source) … 1 (target) along the line; omitted = 0.5
+  "labelOffset": { "x": 0, "y": -16 } }   // shift off the line; omitted = on it
 ```
 
 When a file has several snippets, point edges at the **editor** so the arrow lands on the code.

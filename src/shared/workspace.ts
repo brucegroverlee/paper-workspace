@@ -233,6 +233,8 @@ export interface WorkspaceEdge {
   targetSide?: Side;
   /** Undefined = `DEFAULT_EDGE_PATH`. */
   path?: EdgePath;
+  /** Bend points the line passes through, in canvas coordinates, in order from source to target; undefined = none. */
+  points?: XY[];
   /** Line color; undefined = the canvas's text color. */
   color?: string;
   /** Line thickness in px; undefined = `DEFAULT_EDGE_WIDTH`. */
@@ -242,6 +244,10 @@ export interface WorkspaceEdge {
   startMarker?: EdgeMarker;
   endMarker?: EdgeMarker;
   label?: string;
+  /** How far along the line the label sits, 0 (source) to 1 (target); undefined = 0.5, the middle. */
+  labelAt?: number;
+  /** Shift of the label off that point of the line, in canvas pixels; undefined = on the line. */
+  labelOffset?: XY;
   /** Label color; undefined = the line color. */
   labelColor?: string;
   /** Box behind the label; `'none'` = transparent (the line shows through); undefined = the canvas background. */
@@ -740,17 +746,28 @@ function parseEdge(e: Record<string, any>): WorkspaceEdge {
     sourceSide: oneOf(SIDES, e.sourceSide),
     targetSide: oneOf(SIDES, e.targetSide),
     path: oneOf(EDGE_PATHS, e.path),
+    points: edgePoints(e.points),
     color: color(e.color),
     width: Number.isFinite(width) && width > 0 ? Math.min(EDGE_WIDTH_CEILING, width) : undefined,
     dash: oneOf(EDGE_DASHES, e.dash),
     startMarker: oneOf(EDGE_MARKERS, e.startMarker),
     endMarker: oneOf(EDGE_MARKERS, e.endMarker),
     label: typeof e.label === 'string' && e.label ? e.label : undefined,
+    labelAt: Number.isFinite(e.labelAt) && e.labelAt >= 0 && e.labelAt <= 1 && e.labelAt !== 0.5 ? e.labelAt : undefined,
+    labelOffset: edgePoints([e.labelOffset])?.[0],
     labelColor: color(e.labelColor),
     labelBackground: e.labelBackground === 'none' ? 'none' : color(e.labelBackground),
     fontSize: fontSize > 0 ? fontSize : undefined,
     fontWeight: fontWeight >= 100 && fontWeight <= 900 ? fontWeight : undefined,
   };
+}
+
+function edgePoints(v: unknown): XY[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v
+    .filter((p) => p && typeof p === 'object' && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)))
+    .map((p) => ({ x: Number(p.x), y: Number(p.y) }));
+  return out.length ? out : undefined;
 }
 
 /** Fixed key order; unset and default values are left out so files stay small and diffs readable. */
@@ -763,12 +780,15 @@ function serializeEdge(e: WorkspaceEdge) {
     target: e.target,
     targetSide: e.targetSide,
     path: unlessDefault(e.path, DEFAULT_EDGE_PATH),
+    points: e.points?.length ? e.points.map((p) => ({ x: p.x, y: p.y })) : undefined,
     color: e.color,
     width: unlessDefault(e.width, DEFAULT_EDGE_WIDTH),
     dash: unlessDefault(e.dash, 'solid'),
     startMarker: unlessDefault(e.startMarker, DEFAULT_START_MARKER),
     endMarker: unlessDefault(e.endMarker, DEFAULT_END_MARKER),
     label: e.label || undefined,
+    labelAt: unlessDefault(e.labelAt, 0.5),
+    labelOffset: e.labelOffset ? { x: e.labelOffset.x, y: e.labelOffset.y } : undefined,
     labelColor: e.labelColor,
     labelBackground: e.labelBackground,
     fontSize: e.fontSize,

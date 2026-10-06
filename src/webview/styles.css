@@ -2008,7 +2008,8 @@ kbd {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   pointer-events: all;
-  cursor: pointer;
+  /* Dragged to move it along the line or off it. */
+  cursor: move;
 }
 
 /* A chosen background reads as a tag on the line. */
@@ -2039,6 +2040,43 @@ kbd {
   align-items: center;
   gap: 8px;
   font-family: var(--pw-font);
+}
+
+/* Bend point handles of a selected link (screen coordinates, see LinkBends). */
+.pw-link-bends {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 9;
+}
+
+.pw-link-bend {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--pw-accent);
+  border: 2px solid var(--pw-canvas-bg);
+  box-shadow: 0 0 0 1px var(--pw-accent);
+  cursor: move;
+  pointer-events: all;
+}
+
+/* Middle of a stretch: pulling it out adds a bend point. */
+.pw-link-bend.add {
+  width: 8px;
+  height: 8px;
+  background: var(--pw-canvas-bg);
+  border: 1.5px solid var(--pw-accent);
+  box-shadow: none;
+  opacity: 0.85;
+}
+
+.pw-link-bend:hover {
+  outline: 3px solid color-mix(in srgb, var(--pw-accent) 35%, transparent);
 }
 
 .pw-dropdown-button.compact {

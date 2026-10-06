@@ -21,6 +21,12 @@ Everything Paper Workspace can do today. For a quick overview, see the [README](
 - **Shapes for diagrams**: the shapes panel (toolbar, or **S**) has general shapes, flowchart symbols and block arrows,
   like draw.io. Click one to add it, or drag it onto the canvas or into a group; double-click to label it, and set its
   fill, line and text colors from the toolbar above it.
+- **Link routes**: select a link and drag the handle in the middle of the line to bend it, like draw.io's waypoints,
+  so links that would overlap take separate paths. Each bend adds new handles between the points; drag a bend point
+  to move it (it snaps in line with its neighbors), double-click it to remove it, or use *Reset path* in the link
+  toolbar. Elbow links keep right angles through their bends, and bends move along when both ends are moved together.
+  Drag a link's label to slide it along the line or move it off to the side (it snaps back onto the line and to its
+  middle); it stays in that spot on the line as the link moves. *Reset label position* in the toolbar re-centers it.
 - **Workspaces panel**: create several `.workspace` workspaces (stored in `.paperworkspace/`, safe to commit), pick the
   **target**, and choose a mode:
   - **Off** — disabled.
