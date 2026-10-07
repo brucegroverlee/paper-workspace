@@ -1473,8 +1473,15 @@ body {
   cursor: pointer;
 }
 
-.pw-header-menu-item:hover:not(:disabled) {
+.pw-header-menu-item:hover:not(:disabled),
+.pw-header-menu-item.open {
   background: var(--pw-hover);
+}
+
+.pw-header-menu-more {
+  margin-left: auto;
+  padding-left: 16px;
+  opacity: 0.7;
 }
 
 .pw-header-menu-item:disabled {

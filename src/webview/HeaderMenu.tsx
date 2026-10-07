@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-export type HeaderMenuItem = { icon: string; label: string; onClick(): void; active?: boolean; danger?: boolean; disabled?: boolean } | 'separator';
+export type HeaderMenuItem =
+  | { icon: string; label: string; onClick(): void; active?: boolean; danger?: boolean; disabled?: boolean }
+  | { icon: string; label: string; submenu: MenuEntries; disabled?: boolean }
+  | 'separator';
 export type MenuEntries = (HeaderMenuItem | false | null | undefined)[];
 
 /** Drop falsy entries and leading, trailing or doubled separators, so callers can build the list with `cond && item`. */
@@ -95,17 +98,30 @@ export function MenuPopup(props: { anchor: HTMLElement | { x: number; y: number 
       style={pos ?? { left: 0, top: 0, visibility: 'hidden' }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {items.map((item, i) =>
+      <MenuItems items={items} onClose={onClose} />
+    </div>,
+    document.body,
+  );
+}
+
+function MenuItems(props: { items: HeaderMenuItem[]; onClose(): void }) {
+  const [open, setOpen] = useState<number | null>(null);
+  return (
+    <>
+      {props.items.map((item, i) =>
         item === 'separator' ? (
           <div key={i} className="pw-header-menu-sep" role="separator" />
+        ) : 'submenu' in item ? (
+          <SubMenu key={i} item={item} open={open === i} onOpen={(o) => setOpen(o ? i : null)} onClose={props.onClose} />
         ) : (
           <button
             key={i}
             role="menuitem"
             className={`pw-header-menu-item${item.active ? ' active' : ''}${item.danger ? ' danger' : ''}`}
             disabled={item.disabled}
+            onPointerEnter={() => setOpen(null)}
             onClick={() => {
-              onClose();
+              props.onClose();
               item.onClick();
             }}
           >
@@ -114,7 +130,47 @@ export function MenuPopup(props: { anchor: HTMLElement | { x: number; y: number 
           </button>
         ),
       )}
-    </div>,
-    document.body,
+    </>
+  );
+}
+
+/**
+ * An entry that opens more entries beside it on hover or click (right of the menu, or left when there is no room).
+ * The panel is a child of the menu, so a click in it does not count as a click elsewhere.
+ */
+function SubMenu(props: { item: Extract<HeaderMenuItem, { submenu: MenuEntries }>; open: boolean; onOpen(open: boolean): void; onClose(): void }) {
+  const { item, open, onOpen } = props;
+  const button = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return setPos(null);
+    const a = button.current!.getBoundingClientRect();
+    const r = panel.current!.getBoundingClientRect();
+    const left = a.right + r.width + 4 <= window.innerWidth ? a.right + 2 : a.left - r.width - 2;
+    setPos({ left: Math.max(4, left), top: Math.max(4, Math.min(a.top - 5, window.innerHeight - r.height - 4)) });
+  }, [open]);
+  return (
+    <>
+      <button
+        ref={button}
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`pw-header-menu-item${open ? ' open' : ''}`}
+        disabled={item.disabled}
+        onPointerEnter={() => onOpen(true)}
+        onClick={() => onOpen(!open)}
+      >
+        <span className={`codicon codicon-${item.icon}`} />
+        {item.label}
+        <span className="codicon codicon-chevron-right pw-header-menu-more" />
+      </button>
+      {open && (
+        <div ref={panel} className="pw-header-menu" role="menu" style={pos ?? { left: 0, top: 0, visibility: 'hidden' }}>
+          <MenuItems items={tidy(item.submenu)} onClose={props.onClose} />
+        </div>
+      )}
+    </>
   );
 }

@@ -204,3 +204,37 @@ export function cloneTrees<T extends TreeNode>(snapshot: T[], offset: XY, makeId
     return copy;
   });
 }
+
+export type AlignOp = 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom';
+
+/**
+ * Line up nodes `ids` along one edge (or center line) of the box around them all. Only `movable` nodes move; fixed ones
+ * still count for the box. Children of groups move by the same canvas offset (their positions are relative).
+ */
+export function alignNodes<T extends TreeNode>(ns: T[], ids: string[], op: AlignOp, movable: (id: string) => boolean = () => true): T[] {
+  const rects = new Map(ids.map((id) => [id, { ...absolutePos(ns, id), ...sizeOf(ns.find((n) => n.id === id)!) }]));
+  if (rects.size < 2) return ns;
+  const all = [...rects.values()];
+  const left = Math.min(...all.map((r) => r.x));
+  const top = Math.min(...all.map((r) => r.y));
+  const right = Math.max(...all.map((r) => r.x + r.width));
+  const bottom = Math.max(...all.map((r) => r.y + r.height));
+  const target = (r: XY & { width: number; height: number }): XY => {
+    switch (op) {
+      case 'left': return { x: left, y: r.y };
+      case 'centerX': return { x: Math.round((left + right - r.width) / 2), y: r.y };
+      case 'right': return { x: right - r.width, y: r.y };
+      case 'top': return { x: r.x, y: top };
+      case 'centerY': return { x: r.x, y: Math.round((top + bottom - r.height) / 2) };
+      case 'bottom': return { x: r.x, y: bottom - r.height };
+    }
+  };
+  return ns.map((n) => {
+    const r = rects.get(n.id);
+    if (!r || !movable(n.id)) return n;
+    const t = target(r);
+    const dx = t.x - r.x;
+    const dy = t.y - r.y;
+    return dx || dy ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n;
+  });
+}

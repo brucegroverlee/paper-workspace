@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GROUP_HEADER_HEIGHT, GROUP_PADDING, canvasBackgroundOf, groupHeaderHeight, clampFontSize, isLightColor, mediaSizeFor, parseWorkspace, serializeWorkspace } from '../src/shared/workspace';
-import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isLockedIn, reparent, type TreeNode } from '../src/webview/boardLayout';
+import { absolutePos, alignNodes, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isLockedIn, reparent, type TreeNode } from '../src/webview/boardLayout';
 import { toneOver } from '../src/webview/tone';
 
 const ids = (ns: { id: string }[]) => ns.map((n) => n.id).join(',');
@@ -272,5 +272,33 @@ describe('locked groups', () => {
     expect(dropTargetFor(ns, 'c', new Set(['c']))).toBeUndefined();
     ns[0] = { ...ns[0], data: {} };
     expect(dropTargetFor(ns, 'c', new Set(['c']))).toBe('inner');
+  });
+});
+
+describe('alignNodes', () => {
+  const ns: TreeNode[] = [
+    { id: 'g', type: 'group', position: { x: 100, y: 100 }, width: 400, height: 400 },
+    { id: 'a', position: { x: 10, y: 20 }, width: 100, height: 50 }, // canvas 10,20 → 110,70
+    { id: 'b', parentId: 'g', position: { x: 50, y: 50 }, width: 200, height: 100 }, // canvas 150,150 → 350,250
+    { id: 'c', position: { x: 400, y: 0 }, width: 50, height: 300 }, // canvas 400,0 → 450,300
+  ];
+  const at = (out: TreeNode[], id: string) => absolutePos(out, id);
+
+  it('aligns edges and centers in canvas coordinates, also inside groups', () => {
+    let out = alignNodes(ns, ['a', 'b', 'c'], 'left');
+    expect([at(out, 'a').x, at(out, 'b').x, at(out, 'c').x]).toEqual([10, 10, 10]);
+    expect(out.find((n) => n.id === 'b')!.position).toEqual({ x: -90, y: 50 });
+    out = alignNodes(ns, ['a', 'b', 'c'], 'right');
+    expect([at(out, 'a').x + 100, at(out, 'b').x + 200, at(out, 'c').x + 50]).toEqual([450, 450, 450]);
+    out = alignNodes(ns, ['a', 'b', 'c'], 'centerY');
+    expect([at(out, 'a').y + 25, at(out, 'b').y + 50, at(out, 'c').y + 150]).toEqual([150, 150, 150]);
+    out = alignNodes(ns, ['a', 'c'], 'bottom');
+    expect([at(out, 'a').y, at(out, 'c').y]).toEqual([250, 0]);
+  });
+
+  it('keeps fixed nodes in place but counts them', () => {
+    const out = alignNodes(ns, ['a', 'c'], 'top', (id) => id !== 'a');
+    expect([at(out, 'a').y, at(out, 'c').y]).toEqual([20, 0]);
+    expect(alignNodes(ns, ['a', 'c'], 'top', (id) => id !== 'c').find((n) => n.id === 'a')!.position.y).toBe(0);
   });
 });

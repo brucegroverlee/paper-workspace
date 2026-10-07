@@ -18,6 +18,8 @@ Everything Paper Workspace can do today. For a quick overview, see the [README](
   `paperWorkspace.gitDiffBase` to a branch or commit to also see (faded) what was committed since then, or to
   `index` for unstaged changes only.
 - **Canvas**: pan, zoom, box-select, minimap, fit-all, dotted background (color set in the ⚙ panel, grey by default); follows your editor theme and font.
+- **Align**: select several items and right-click one of them (or the box around a drag-selection) → *Align* to line
+  them up by their left, center or right edges, or their top, middle or bottom edges. Locked items stay where they are.
 - **Shapes for diagrams**: the shapes panel (toolbar, or **S**) has general shapes, flowchart symbols and block arrows,
   like draw.io. Click one to add it, or drag it onto the canvas or into a group; double-click to label it, and set its
   fill, line and text colors from the toolbar above it.

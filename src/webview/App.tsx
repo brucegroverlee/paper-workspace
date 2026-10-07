@@ -59,7 +59,7 @@ import {
 } from '../shared/workspace';
 import { isAbsoluteWorkspacePath } from '../shared/paths';
 import { DEFAULT_CANVAS_CONFIG, type CanvasConfig, type EditorSettings, type HostToWebview } from '../shared/protocol';
-import { absolutePos, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isLockedIn, isWithin, reparent, sizeOf } from './boardLayout';
+import { absolutePos, alignNodes, arrange, cloneTrees, copyTrees, dropNodes, dropTargetFor, fitGroups, isLockedIn, isWithin, reparent, sizeOf, type AlignOp } from './boardLayout';
 import { mergeCopies, mergeTags, snapshotNodes } from './clipboard';
 import { GroupNode, MediaNode, ShapeNode, TextNode, editWhenMounted } from './BoardNodes';
 import { WorkspaceContext, type WorkspaceActions, type RFEdge, type RFEditorNode, type RFFileNode, type RFFolderNode, type RFGroupNode, type RFNode, type RFShapeNode } from './context';
@@ -508,6 +508,8 @@ export function App() {
   const [nodeMenu, setNodeMenu] = useState<{ id: string; at: { x: number; y: number }; items?: MenuEntries } | null>(null);
   /** Right-click on the empty canvas. */
   const [paneMenu, setPaneMenu] = useState<{ x: number; y: number } | null>(null);
+  /** Right-click on a selection of several nodes (or on the box around it). */
+  const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number } | null>(null);
   /** Where the right button went down, to tell a right-click from a right-drag pan. */
   const rightDown = useRef<{ x: number; y: number } | null>(null);
   const [themeTick, setThemeTick] = useState(0);
@@ -1020,6 +1022,14 @@ export function App() {
       },
       openNodeMenu: (id, x, y, items) => {
         setPaneMenu(null);
+        // A node that is part of a larger selection opens the selection's menu.
+        const ns = nodesRef.current;
+        const roots = selectionRoots(ns);
+        if (roots.length > 1 && (ns.find((n) => n.id === id)?.selected || roots.some((r) => r.id === id))) {
+          setNodeMenu(null);
+          return setSelectionMenu({ x, y });
+        }
+        setSelectionMenu(null);
         setNodeMenu({ id, at: { x, y }, items });
       },
       nodeMenuItems: (id) => nodeMenuItemsRef.current(id),
@@ -1047,6 +1057,17 @@ export function App() {
   );
   const closeNodeMenu = useCallback(() => setNodeMenu(null), []);
   const closePaneMenu = useCallback(() => setPaneMenu(null), []);
+  const closeSelectionMenu = useCallback(() => setSelectionMenu(null), []);
+
+  /** Line up the selected nodes (a selected editor stands for its file); locked ones stay but count for the box. */
+  const alignSelection = useCallback(
+    (op: AlignOp) => {
+      if (readOnlyRef.current) return;
+      const ids = selectionRoots(nodesRef.current).map((n) => n.id);
+      updateNodes((ns) => alignNodes(ns, ids, op, (id) => !isLockedIn(ns, id) && ns.find((n) => n.id === id)?.draggable !== false));
+    },
+    [updateNodes],
+  );
 
   // ---- board nodes (groups, text, notes, media) ----------------------------------------------------
 
@@ -1377,6 +1398,41 @@ export function App() {
   };
   const nodeMenuItemsRef = useRef(nodeMenuItems);
   nodeMenuItemsRef.current = nodeMenuItems;
+
+  /** Right-click on a selection of several nodes: arrange them together, or copy, duplicate or delete them all. */
+  const selectionMenuItems = (): MenuEntries => {
+    const ns = nodesRef.current;
+    const readOnly = readOnlyRef.current;
+    const align = (op: AlignOp, label: string, icon: string): HeaderMenuItem => ({ icon, label, onClick: () => alignSelection(op) });
+    const selected = ns.filter((n) => n.selected);
+    return [
+      {
+        icon: 'layout',
+        label: 'Align',
+        disabled: readOnly,
+        submenu: [
+          align('left', 'Align left', 'layout-sidebar-left'),
+          align('centerX', 'Align horizontal centers', 'layout-centered'),
+          align('right', 'Align right', 'layout-sidebar-right'),
+          'separator',
+          align('top', 'Align top', 'layout-menubar'),
+          align('centerY', 'Align vertical centers', 'horizontal-rule'),
+          align('bottom', 'Align bottom', 'layout-panel'),
+        ],
+      },
+      'separator',
+      { icon: 'copy', label: 'Copy', onClick: () => copySelection(false) },
+      { icon: 'screen-cut', label: 'Cut', disabled: readOnly, onClick: () => copySelection(true) },
+      selected.some(duplicable) && { icon: 'files', label: 'Duplicate', disabled: readOnly, onClick: () => duplicateSelection() },
+      {
+        icon: 'trash',
+        label: 'Delete',
+        danger: true,
+        disabled: readOnly || selected.every((n) => n.deletable === false),
+        onClick: () => void rf.deleteElements({ nodes: selected }),
+      },
+    ];
+  };
 
   /**
    * Right-click on the empty canvas: show or hide the title of every file or every editor at once. It sets each paper's
@@ -1728,6 +1784,7 @@ export function App() {
           e.preventDefault();
           if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
           setNodeMenu(null);
+          setSelectionMenu(null);
           setPaneMenu({ x: e.clientX, y: e.clientY });
         }}
       >
@@ -1752,6 +1809,13 @@ export function App() {
           onNodeDragStart={onNodeDragStart}
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
+          // The box drawn around a selection made by dragging.
+          onSelectionContextMenu={(e) => {
+            e.preventDefault();
+            setNodeMenu(null);
+            setPaneMenu(null);
+            setSelectionMenu({ x: e.clientX, y: e.clientY });
+          }}
           defaultViewport={initialViewport}
           onMoveEnd={(_, vp) => reportViewport(vp)}
           onInit={(inst) => reportViewport(inst.getViewport())}
@@ -1824,6 +1888,7 @@ export function App() {
           <MenuPopup anchor={nodeMenu.at} items={[...(nodeMenu.items ?? []), 'separator', ...nodeMenuItems(nodeMenu.id)]} onClose={closeNodeMenu} />
         )}
         {paneMenu && <MenuPopup anchor={paneMenu} items={paneMenuItems(paneMenu)} onClose={closePaneMenu} />}
+        {selectionMenu && <MenuPopup anchor={selectionMenu} items={selectionMenuItems()} onClose={closeSelectionMenu} />}
         {help && <HelpOverlay onClose={() => setHelp(false)} />}
         {taggedNode && (
           <TagPickerDialog
