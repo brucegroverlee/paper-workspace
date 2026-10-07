@@ -46,6 +46,7 @@ export function Toolbar(props: {
   configOpen: boolean;
   onConfig(): void;
   onViewSource(): void;
+  onRefresh(): void;
   minimapOpen: boolean;
   onMinimap(): void;
   tagsOpen: boolean;
@@ -86,6 +87,7 @@ export function Toolbar(props: {
         <ToolButton icon="tag" label="Tags — rename, recolor or create this workspace's tags" active={props.tagsOpen} onClick={props.onTags} />
         <SnapshotButton busy={props.snapshotBusy} onSnapshot={props.onSnapshot} />
         <ToolButton icon="file-code" label="View the workspace file's source" onClick={props.onViewSource} />
+        <ToolButton icon="sync" label="Refresh canvas — reload the layout and its files from disk" onClick={props.onRefresh} />
         <ToolButton icon="map" label={props.minimapOpen ? 'Hide the minimap' : 'Show the minimap'} active={props.minimapOpen} onClick={props.onMinimap} />
         <ToolButton icon="settings-gear" label="Configuration" active={props.configOpen} onClick={props.onConfig} />
         <ToolButton icon="question" label="Help & shortcuts" onClick={props.onHelp} />

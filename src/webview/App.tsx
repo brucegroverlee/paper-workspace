@@ -1856,6 +1856,7 @@ export function App() {
           configOpen={panel === 'config'}
           onConfig={() => togglePanel('config')}
           onViewSource={() => host.postMessage({ type: 'viewSource' })}
+          onRefresh={refreshCanvas}
           minimapOpen={minimap}
           onMinimap={toggleMinimap}
           tagsOpen={tagDialog?.kind === 'manager'}
