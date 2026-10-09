@@ -230,11 +230,15 @@ export function EditorBody(props: { id: string; data: EditorNodeData; fileNodeId
 
   return (
     // The preview is static (no editing or scrolling), so it drags the node like the rest of the paper.
+    // `nokey` keeps Shift (React Flow's box-select key) from turning a Shift+click in the code into a box selection,
+    // so Shift+click extends the text selection like in VS Code.
     <div
       ref={body}
-      className={`pw-editor-body ${live ? 'nodrag nopan nowheel' : 'preview'}`}
+      className={`pw-editor-body ${live ? 'nodrag nopan nowheel nokey' : 'preview'}`}
       // focusNode maps the hidden editor of a combined file node to the file node.
       onDoubleClick={live ? undefined : () => ctx.focusNode(id)}
+      // A Shift+click in the code extends the text selection; it must not also toggle the paper out of the selection.
+      onClick={live ? (e) => e.shiftKey && e.stopPropagation() : undefined}
       onContextMenu={(e) => !(e.target as HTMLElement).closest('.monaco-editor') && props.onContextMenu(e)}
     >
       {doc?.missing ? (
