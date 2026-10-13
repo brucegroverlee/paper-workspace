@@ -2,7 +2,7 @@
   "name": "paper-workspace",
   "displayName": "Paper Workspace",
   "description": "Open code as movable, editable 'papers' on an infinite canvas. Each paper is a live Monaco editor bound to a range of lines in a real file.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "GroverLee",
   "preview": true,
   "license": "MIT",
