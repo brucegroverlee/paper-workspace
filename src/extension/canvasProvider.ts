@@ -141,7 +141,7 @@ class CanvasSession {
         if (e.affectsConfiguration('editor')) this.post({ type: 'settings', settings: editorSettings() });
         if (e.affectsConfiguration('paperWorkspace.gitDiffBase')) this.scheduleGitRefresh();
         if (affectsTextmateTheme(e)) void this.postTextmateTheme();
-        if (['minNodeWidth', 'minNodeHeight', 'newFileWidth', 'newFileHeight', 'focusPercent', 'canvasBackground', 'showFileTitleByDefault', 'showEditorTitleByDefault'].some((k) => e.affectsConfiguration(`paperWorkspace.${k}`))) {
+        if (['minNodeWidth', 'minNodeHeight', 'newFileWidth', 'newFileHeight', 'focusPercent', 'canvasBackground', 'showFileTitleByDefault', 'showEditorTitleByDefault', 'revealInExplorer'].some((k) => e.affectsConfiguration(`paperWorkspace.${k}`))) {
           this.post({ type: 'config', config: canvasConfig() });
         }
       }),
@@ -482,7 +482,7 @@ class CanvasSession {
 
   /** Select the focused paper's file in the Explorer, then give keyboard focus back to the canvas. */
   private scheduleExplorerReveal(file: string) {
-    if (!vscode.workspace.getConfiguration('paperWorkspace').get<boolean>('revealInExplorer', true)) return;
+    if (!canvasConfig().revealInExplorer) return;
     clearTimeout(this.revealTimer);
     // Debounced: selection changes arrive in bursts (click, box-select, reveal after add).
     this.revealTimer = setTimeout(() => void this.revealInExplorer(file), 150);

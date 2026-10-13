@@ -499,6 +499,7 @@ export function canvasConfig(): CanvasConfig {
     canvasBackground: canvasBackgroundOf(c.get('canvasBackground')),
     showFileTitleByDefault: c.get<boolean>('showFileTitleByDefault', true) !== false,
     showEditorTitleByDefault: c.get<boolean>('showEditorTitleByDefault', false) === true,
+    revealInExplorer: c.get<boolean>('revealInExplorer', true) !== false,
   };
 }
 
@@ -523,7 +524,7 @@ export async function updateCanvasConfig(patch: Partial<CanvasConfig>) {
   if (patch.newFileWidth !== undefined) await c.update('newFileWidth', clampNodeSize(patch.newFileWidth, DEFAULT_NEW_FILE_SIZE.width), vscode.ConfigurationTarget.Global);
   if (patch.newFileHeight !== undefined) await c.update('newFileHeight', clampNodeSize(patch.newFileHeight, DEFAULT_NEW_FILE_SIZE.height), vscode.ConfigurationTarget.Global);
   if (patch.focusPercent !== undefined) await c.update('focusPercent', clampFocusPercent(patch.focusPercent), vscode.ConfigurationTarget.Global);
-  for (const key of ['showFileTitleByDefault', 'showEditorTitleByDefault'] as const) {
+  for (const key of ['showFileTitleByDefault', 'showEditorTitleByDefault', 'revealInExplorer'] as const) {
     if (patch[key] !== undefined) await c.update(key, patch[key] === true, vscode.ConfigurationTarget.Global);
   }
   if (patch.canvasBackground !== undefined) {

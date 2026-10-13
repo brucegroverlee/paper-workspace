@@ -22,6 +22,8 @@ export interface CanvasConfig {
   /** Title visibility given to new file / editor papers (existing papers keep their own). */
   showFileTitleByDefault: boolean;
   showEditorTitleByDefault: boolean;
+  /** Select the focused paper's file in the Explorer (this expands the Explorer's folders down to it). */
+  revealInExplorer: boolean;
   /** Canvas background color (`#rrggbb`). */
   canvasBackground: string;
 }
@@ -36,6 +38,7 @@ export const DEFAULT_CANVAS_CONFIG: CanvasConfig = {
   canvasBackground: DEFAULT_CANVAS_BACKGROUND,
   showFileTitleByDefault: true,
   showEditorTitleByDefault: false,
+  revealInExplorer: true,
 };
 
 /** A text edit in Monaco coordinates (1-based lines/columns), all relative to the pre-edit text. */

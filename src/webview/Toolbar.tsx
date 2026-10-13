@@ -178,9 +178,10 @@ const CONFIG_FIELDS: { key: 'minNodeWidth' | 'minNodeHeight' | 'newFileWidth' | 
   { key: 'focusPercent', label: 'Focus fill', hint: '% of the window a focused paper fills (higher zooms in more)', range: FOCUS },
 ];
 
-const TITLE_FIELDS: { key: 'showFileTitleByDefault' | 'showEditorTitleByDefault'; label: string; hint: string }[] = [
+const CHECK_FIELDS: { key: 'showFileTitleByDefault' | 'showEditorTitleByDefault' | 'revealInExplorer'; label: string; hint: string }[] = [
   { key: 'showFileTitleByDefault', label: 'Show file title by default', hint: 'for newly added file papers' },
   { key: 'showEditorTitleByDefault', label: 'Show editor title by default', hint: 'for newly added snippet editors' },
+  { key: 'revealInExplorer', label: 'Reveal file in Explorer', hint: "highlights the selected paper's file in the Explorer, expanding its folders" },
 ];
 
 /** Canvas configuration; values are VS Code settings (`paperWorkspace.*`), so they apply to every canvas. */
@@ -209,7 +210,7 @@ export function ConfigPanel(props: { config: CanvasConfig; onChange(patch: Parti
         defaultValue={DEFAULT_CANVAS_BACKGROUND}
         onCommit={(canvasBackground) => props.onChange({ canvasBackground })}
       />
-      {TITLE_FIELDS.map((f) => (
+      {CHECK_FIELDS.map((f) => (
         <label key={f.key} className="pw-config-field pw-config-check">
           <span className="pw-config-label">{f.label}</span>
           <input type="checkbox" checked={props.config[f.key]} onChange={(e) => props.onChange({ [f.key]: e.target.checked })} />

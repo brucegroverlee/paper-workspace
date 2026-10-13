@@ -301,7 +301,7 @@ export const DEFAULT_MIN_NODE_SIZE = 50;
 export const NODE_SIZE_FLOOR = 20;
 export const NODE_SIZE_CEILING = 2000;
 /** How much of the window "Focus on paper" makes a node fill, in percent; editable in the config panel. */
-export const DEFAULT_FOCUS_PERCENT = 80;
+export const DEFAULT_FOCUS_PERCENT = 95;
 export const FOCUS_PERCENT_FLOOR = 10;
 export const FOCUS_PERCENT_CEILING = 100;
 /** Title labels are on by default for files and snippet editors. */

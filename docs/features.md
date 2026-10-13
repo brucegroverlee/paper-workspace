@@ -57,7 +57,8 @@ Everything Paper Workspace can do today. For a quick overview, see the [README](
   [`code-change-canvas.md`](../.agents/skills/paper-workspace/workflows/code-change-canvas.md) for a canvas of the changes in a branch, session or PR.
   See [Use the AI skill](ai-skill.md) to add it to your agent.
 - **Ctrl+S** in a canvas saves the layout and every changed file on it.
-- **Explorer sync**: selecting or clicking into a paper selects its file in the Explorer (setting `paperWorkspace.revealInExplorer`).
+- **Explorer sync** (on by default): selecting or clicking into a paper selects its file in the Explorer, expanding its
+  folders ("Reveal file in Explorer" in the ⚙ panel, setting `paperWorkspace.revealInExplorer`).
 
 ## Settings
 

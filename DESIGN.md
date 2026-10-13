@@ -64,7 +64,7 @@ WorkspacesView    side panel tree (mode + papers)                    all papers;
   unstaged marks, and against `ref` minus those (`subtractMarks`) for staged ones, drawn faded (`.pw-git-staged`).
   They are model decorations, so every paper of the file shows them. Git bars sit at the left of the line-decorations lane,
   the target bar right of them; in the overview ruler Git uses the left lane and targets the right one.
-* **Explorer sync**: selecting a single paper (or clicking into one) sends `nodeFocused`; the host runs `revealInExplorer`
+* **Explorer sync** (on by default; can be turned off in the config panel, since `revealInExplorer` always expands the folders down to the file): selecting a single paper (or clicking into one) sends `nodeFocused`; the host runs `revealInExplorer`
   (debounced) and then re-focuses the canvas and its live editor (`restoreFocus`), because that command steals focus.
 * **Saving**: Ctrl/Cmd+S inside the canvas is captured before VS Code's webview handler and saves the layout plus
   every dirty file shown on the canvas.

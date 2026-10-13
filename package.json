@@ -45,7 +45,7 @@
         "paperWorkspace.revealInExplorer": {
           "type": "boolean",
           "default": true,
-          "description": "Select the file of the focused paper in the Explorer, like 'explorer.autoReveal' does for normal editors."
+          "description": "Select the file of the focused paper in the Explorer, like 'explorer.autoReveal' does for normal editors. This expands the Explorer's folders down to the file."
         },
         "paperWorkspace.minNodeWidth": {
           "type": "number",
@@ -77,7 +77,7 @@
         },
         "paperWorkspace.focusPercent": {
           "type": "number",
-          "default": 80,
+          "default": 95,
           "minimum": 10,
           "maximum": 100,
           "description": "Percentage of the window a paper fills after 'Focus on paper'; higher zooms in more. Also editable from the canvas configuration panel."
